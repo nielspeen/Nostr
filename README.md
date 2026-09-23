@@ -112,8 +112,9 @@ Conversations created by the module have `type = chat` and `channel = 90`.
 
 ## Upgrading
 
-After updating the module files, run `php artisan freescout:module-install nostr` so new
-migrations are applied.
+Updating through Manage » Modules (or `php artisan freescout:module-update`) runs the module's
+migrations automatically. Only when you replace the files by hand (for example `git pull` in
+`Modules/Nostr`) run `php artisan migrate` afterwards.
 
 ## Development
 
