@@ -4,10 +4,10 @@ namespace Modules\Nostr\Services;
 
 use Modules\Nostr\Entities\NostrMailbox;
 use Modules\Nostr\Services\Websocket\Connector;
+use Modules\Nostr\Services\Websocket\ReactCompat;
 use Ratchet\Client\WebSocket;
 use Ratchet\RFC6455\Messaging\Frame;
 use Ratchet\RFC6455\Messaging\MessageInterface;
-use React\EventLoop\Loop;
 
 /**
  * Long-running relay listener: keeps one websocket per (mailbox, inbox relay),
@@ -52,8 +52,9 @@ class Listener
     public function run()
     {
         $this->startedAt = time();
-        $this->loop = Loop::get();
-        $this->connector = new Connector($this->loop, new \React\Socket\Connector(['timeout' => 20], $this->loop));
+        $this->loop = ReactCompat::loop();
+        $this->connector = new Connector($this->loop, ReactCompat::socketConnector(['timeout' => 20], $this->loop));
+        $this->log('using '.ReactCompat::describe());
 
         $this->reload();
 
