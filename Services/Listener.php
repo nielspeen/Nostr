@@ -65,12 +65,13 @@ class Listener
             foreach ([SIGTERM, SIGINT] as $signal) {
                 $this->loop->addSignal($signal, function () {
                     $this->log('signal received, stopping');
-                    $this->stop();
+                    $this->stop('signal');
                 });
             }
         }
 
         $this->log('listener started (lifetime '.$this->lifetime.'s)');
+        $this->publishStatus();
         $this->loop->run();
         $this->log('listener stopped');
     }
@@ -100,14 +101,51 @@ class Listener
         return $count;
     }
 
-    public function stop()
+    public function stop($reason = 'signal')
     {
         $this->stopping = true;
+        $this->publishStatus($reason);
         foreach (array_keys($this->connections) as $key) {
             $this->drop($key);
         }
         if ($this->loop) {
             $this->loop->stop();
+        }
+    }
+
+    /**
+     * Heartbeat for the settings page: process info and the state of every connection.
+     */
+    protected function publishStatus($stopReason = null)
+    {
+        $connections = [];
+        foreach ($this->connections as $state) {
+            $connections[] = [
+                'mailbox_id' => $state['cfg']->mailbox_id,
+                'url' => $state['url'],
+                'state' => $state['conn'] ? 'connected' : ($state['timer'] ? 'reconnecting' : 'connecting'),
+                'since' => $state['since'],
+                'caught_up' => $state['caught_up'],
+                'authed' => $state['authed'],
+                'events' => $state['events'],
+                'last_event_at' => $state['last_event_at'],
+                'error' => $state['error'],
+                'retry_in' => $state['timer'] ? $state['backoff'] : null,
+            ];
+        }
+        try {
+            ListenerStatus::write([
+                'pid' => getmypid(),
+                'host' => gethostname(),
+                'started_at' => $this->startedAt,
+                'lifetime' => $this->lifetime,
+                'ends_at' => $this->startedAt + $this->lifetime,
+                'stopped_at' => $stopReason ? time() : null,
+                'stop_reason' => $stopReason,
+                'connections' => $connections,
+            ]);
+        } catch (\Throwable $e) {
+            $this->log('could not write status: '.$e->getMessage());
         }
     }
 
@@ -154,6 +192,11 @@ class Listener
                     'authed' => false,
                     'auth_event_id' => null,
                     'timer' => null,
+                    'since' => null,
+                    'caught_up' => false,
+                    'events' => 0,
+                    'last_event_at' => null,
+                    'error' => null,
                 ];
                 $this->connect($key);
             }
@@ -210,7 +253,11 @@ class Listener
         $state['authed'] = false;
         $state['challenge'] = null;
         $state['auth_event_id'] = null;
+        $state['since'] = time();
+        $state['caught_up'] = false;
+        $state['error'] = null;
         $this->log('connected to '.$state['url']);
+        $this->publishStatus();
 
         $conn->on('message', function (MessageInterface $msg) use ($key) {
             $this->onMessage($key, (string) $msg);
@@ -262,6 +309,10 @@ class Listener
 
             case 'EOSE':
                 $this->log('caught up with '.$state['url']);
+                if (!$state['caught_up']) {
+                    $state['caught_up'] = true;
+                    $this->publishStatus();
+                }
                 break;
 
             case 'AUTH':
@@ -326,6 +377,8 @@ class Listener
     protected function handleEvent($key, array $event)
     {
         $state = $this->connections[$key];
+        $this->connections[$key]['events']++;
+        $this->connections[$key]['last_event_at'] = time();
         try {
             $this->withDb(function () use ($state, $event) {
                 $this->handler->handleGiftWrap($state['cfg'], $event, $state['url']);
@@ -334,6 +387,7 @@ class Listener
             $this->log('error handling event '.substr($event['id'] ?? '', 0, 8).': '.$e->getMessage());
             \Log::error('[Nostr] '.$e->getMessage(), ['exception' => $e]);
         }
+        $this->publishStatus();
     }
 
     protected function onClose($key, $code, $reason)
@@ -343,6 +397,7 @@ class Listener
         }
         $this->connections[$key]['conn'] = null;
         $this->connections[$key]['sub'] = null;
+        $this->connections[$key]['error'] = trim('closed '.$code.' '.$reason);
         $this->log('connection to '.$this->connections[$key]['url'].' closed ('.$code.' '.$reason.')');
         $this->scheduleReconnect($key);
     }
@@ -352,6 +407,7 @@ class Listener
         if (!isset($this->connections[$key])) {
             return;
         }
+        $this->connections[$key]['error'] = mb_substr((string) $message, 0, 300);
         $this->log('could not connect to '.$this->connections[$key]['url'].': '.$message);
         $this->scheduleReconnect($key);
     }
@@ -370,6 +426,7 @@ class Listener
                 $this->connect($key);
             }
         });
+        $this->publishStatus();
     }
 
     protected function drop($key)
@@ -398,7 +455,7 @@ class Listener
         }
         if (time() - $this->startedAt >= $this->lifetime) {
             $this->log('lifetime reached, exiting');
-            $this->stop();
+            $this->stop('lifetime');
 
             return;
         }
@@ -426,6 +483,8 @@ class Listener
                 }
             }
         }
+
+        $this->publishStatus();
     }
 
     /**

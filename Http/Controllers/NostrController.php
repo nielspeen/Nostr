@@ -13,6 +13,7 @@ use Modules\Nostr\Entities\NostrEvent;
 use Modules\Nostr\Entities\NostrMailbox;
 use Modules\Nostr\Services\Announcer;
 use Modules\Nostr\Services\Keys;
+use Modules\Nostr\Services\ListenerStatus;
 
 class NostrController extends Controller
 {
@@ -45,6 +46,7 @@ class NostrController extends Controller
             'cfg' => $cfg,
             'stats' => $stats,
             'retired_keys' => $cfg->exists ? $cfg->getRetiredKeys() : collect(),
+            'listener' => ListenerStatus::forMailbox($cfg),
             'nip05_json' => $nip05Json,
             'nip05_url' => $cfg->getNip05Domain() ? 'https://'.$cfg->getNip05Domain().'/.well-known/nostr.json' : '',
         ]);

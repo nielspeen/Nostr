@@ -43,6 +43,10 @@ try {
     $mailbox = \App\Mailbox::first();
     $mid = $mailbox->id;
 
+    // Start from a mailbox without Nostr configuration (rolled back with the transaction).
+    NostrMailbox::where('mailbox_id', $mid)->delete();
+    \Modules\Nostr\Entities\MailboxKey::where('mailbox_id', $mid)->delete();
+
     // Settings page before any key.
     $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
     check('settings page renders', $r->getStatusCode() === 200 && strpos($r->getContent(), 'Generate keypair') !== false, $r->getStatusCode());
@@ -72,6 +76,27 @@ try {
     // Settings page shows the identity.
     $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
     check('settings page shows npub', $r->getStatusCode() === 200 && strpos($r->getContent(), $cfg->getNpub()) !== false && strpos($r->getContent(), 'support@example.com') !== false && strpos($r->getContent(), 'Host this file at https://example.com/.well-known/nostr.json') !== false, $r->getStatusCode().' '.substr(preg_replace('/\s+/', ' ', strip_tags($r->getContent())), 0, 300));
+
+    // Listener status panel.
+    \Option::set('nostr.listener', null);
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('listener panel: never started', strpos($r->getContent(), 'Not started yet') !== false && strpos($r->getContent(), 'not connected') !== false, $r->getStatusCode());
+    \Modules\Nostr\Services\ListenerStatus::write(['pid' => 4242, 'host' => 'box', 'started_at' => time() - 100, 'lifetime' => 1200, 'ends_at' => time() + 1100, 'stopped_at' => null, 'stop_reason' => null,
+        'connections' => [['mailbox_id' => $mid, 'url' => 'ws://127.0.0.1:1', 'state' => 'connected', 'since' => time() - 90, 'caught_up' => true, 'authed' => false, 'events' => 3, 'last_event_at' => time() - 10, 'error' => null, 'retry_in' => null],
+                          ['mailbox_id' => $mid, 'url' => 'wss://relay.example.org', 'state' => 'reconnecting', 'since' => null, 'caught_up' => false, 'authed' => false, 'events' => 0, 'last_event_at' => null, 'error' => 'Connection refused', 'retry_in' => 20]]]);
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    $c = $r->getContent();
+    check('listener panel: running with relay details', strpos($c, '>Running<') !== false && strpos($c, 'Process 4242 on box') !== false && strpos($c, '>connected<') !== false && strpos($c, '>reconnecting<') !== false && strpos($c, 'Connection refused') !== false && strpos($c, 'retry in 20 s') !== false, substr(preg_replace('/\s+/', ' ', strip_tags($c)), 0, 200));
+    \Option::set('nostr.listener', ['pid' => 1, 'heartbeat_at' => time() - 1000, 'started_at' => time() - 2000, 'connections' => []]);
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('listener panel: stale heartbeat', strpos($r->getContent(), 'Not responding') !== false);
+    \Option::set('nostr.listener', ['pid' => 1, 'heartbeat_at' => time() - 30, 'stopped_at' => time() - 30, 'stop_reason' => 'lifetime', 'connections' => []]);
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('listener panel: scheduled restart', strpos($r->getContent(), '>Restarting<') !== false);
+    \Option::set('nostr.listener', ['pid' => 1, 'heartbeat_at' => time() - 3000, 'stopped_at' => time() - 3000, 'stop_reason' => 'signal', 'connections' => []]);
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('listener panel: stopped', strpos($r->getContent(), '>Stopped<') !== false);
+    \Option::set('nostr.listener', null);
 
     // Key lifecycle: the second generate is refused, replacing needs password + phrase, old key is retired.
     $firstPub = $cfg->pubkey;

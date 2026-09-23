@@ -80,6 +80,9 @@ handles messages as they arrive. The scheduler starts it every minute with `with
 it exits after `listener_lifetime` seconds (default 20 minutes) so a fresh process takes over; relays
 keep the gift wraps, so nothing is lost in between. Its output goes to `storage/logs/nostr-listen.log`.
 
+The mailbox settings page shows whether the listener is running (process, restart time, one row per
+inbox relay with its connection state and last error, FreeScout's cron status) and the tail of its log.
+
 - `php artisan nostr:listen --once` fetches pending messages once and exits (handy for testing).
 - `php artisan nostr:announce` republishes the profile and relay lists (also runs daily).
 

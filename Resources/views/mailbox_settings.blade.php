@@ -49,6 +49,86 @@
                     </div>
                 @endif
 
+                @php
+                    $ls = $listener['status'] ?? [];
+                    $lstate = $listener['state'] ?? 'never';
+                    $ago = function ($ts) { return $ts ? \Illuminate\Support\Carbon::createFromTimestamp($ts)->diffForHumans() : ''; };
+                    $labels = [
+                        'running'    => ['success', __('Running')],
+                        'restarting' => ['info',    __('Restarting')],
+                        'stale'      => ['danger',  __('Not responding')],
+                        'stopped'    => ['danger',  __('Stopped')],
+                        'never'      => ['warning', __('Not started yet')],
+                        'disabled'   => ['default', __('Off')],
+                    ];
+                @endphp
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h4 class="panel-title">{{ __('Listener') }} <span class="label label-{{ $labels[$lstate][0] }}">{{ $labels[$lstate][1] }}</span></h4>
+                    </div>
+                    <div class="panel-body">
+                        @if ($lstate == 'disabled')
+                            <p class="text-help">{{ __('The listener starts automatically once this channel is enabled and has a key and inbox relays.') }}</p>
+                        @elseif ($lstate == 'running')
+                            <p>{{ __('Process :pid on :host, started :started, restarts :ends.', ['pid' => $ls['pid'] ?? '?', 'host' => $ls['host'] ?? '?', 'started' => $ago($ls['started_at'] ?? null), 'ends' => $ago($ls['ends_at'] ?? null)]) }} <small class="text-help">{{ __('Last heartbeat :ago.', ['ago' => $ago($ls['heartbeat_at'] ?? null)]) }}</small></p>
+                        @elseif ($lstate == 'restarting')
+                            <p>{{ __('The previous process finished its scheduled run :ago; the cron job starts a new one within a minute.', ['ago' => $ago($ls['stopped_at'] ?? null)]) }}</p>
+                        @elseif ($lstate == 'stopped')
+                            <p class="text-danger">{{ __('The listener stopped :ago (:reason) and has not been started again.', ['ago' => $ago($ls['stopped_at'] ?? null), 'reason' => $ls['stop_reason'] ?? '?']) }}</p>
+                        @elseif ($lstate == 'stale')
+                            <p class="text-danger">{{ __('No heartbeat since :ago. The process was probably killed or the server rebooted; the cron job should start a new one within a minute.', ['ago' => $ago($ls['heartbeat_at'] ?? null)]) }}</p>
+                        @else
+                            <p class="text-warning">{{ __('The listener has never reported in. It is started by FreeScout\'s cron job (php artisan schedule:run every minute) within a minute of enabling the channel.') }}</p>
+                        @endif
+
+                        @if ($listener['cron_ok'] === false)
+                            <p class="text-danger">{{ __('FreeScout\'s cron job last ran :ago. Without it neither emails nor the listener run.', ['ago' => $ago($listener['cron_last_run'])]) }}</p>
+                        @elseif ($listener['cron_ok'] === true)
+                            <p class="text-help">{{ __('FreeScout\'s cron job last ran :ago.', ['ago' => $ago($listener['cron_last_run'])]) }}</p>
+                        @endif
+
+                        @if ($lstate != 'disabled' && count($listener['relays']))
+                            <table class="table table-condensed margin-top">
+                                <thead>
+                                    <tr>
+                                        <th>{{ __('Inbox relay') }}</th>
+                                        <th>{{ __('Connection') }}</th>
+                                        <th>{{ __('Messages') }}</th>
+                                        <th>{{ __('Details') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($listener['relays'] as $url => $relay)
+                                        @php
+                                            $rstate = $lstate == 'running' ? ($relay['state'] ?? 'none') : 'none';
+                                            $rlabel = ['connected' => ['success', __('connected')], 'connecting' => ['warning', __('connecting')], 'reconnecting' => ['warning', __('reconnecting')], 'none' => ['default', __('not connected')]][$rstate] ?? ['default', $rstate];
+                                        @endphp
+                                        <tr>
+                                            <td><code>{{ $url }}</code></td>
+                                            <td><span class="label label-{{ $rlabel[0] }}">{{ $rlabel[1] }}</span> @if ($rstate == 'connected' && !empty($relay['since']))<small class="text-help">{{ __('since') }} {{ $ago($relay['since']) }}</small>@endif</td>
+                                            <td>{{ (int) ($relay['events'] ?? 0) }}@if (!empty($relay['last_event_at'])) <small class="text-help">({{ __('last') }} {{ $ago($relay['last_event_at']) }})</small>@endif</td>
+                                            <td>
+                                                @if ($rstate == 'connected')
+                                                    {{ !empty($relay['caught_up']) ? __('subscribed') : __('waiting for the relay') }}{{ !empty($relay['authed']) ? ', '.__('authenticated') : '' }}
+                                                @elseif ($rstate == 'reconnecting')
+                                                    {{ __('retry in :s s', ['s' => $relay['retry_in'] ?? '?']) }}@if (!empty($relay['error'])): <small class="text-danger">{{ $relay['error'] }}</small>@endif
+                                                @elseif (!empty($relay['error']))
+                                                    <small class="text-danger">{{ $relay['error'] }}</small>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        @endif
+
+                        @if ($listener['log'] !== '')
+                            <p><a data-toggle="collapse" href="#nostr-listener-log" class="btn btn-default btn-xs">{{ __('Show listener log') }}</a> <small class="text-help">storage/logs/nostr-listen.log</small></p>
+                            <div id="nostr-listener-log" class="collapse"><pre style="max-height: 300px; overflow: auto;">{{ $listener['log'] }}</pre></div>
+                        @endif
+                    </div>
+                </div>
+
                 @if (session('nostr_reveal_nsec'))
                     <div class="alert alert-warning">
                         <strong>{{ __('Private key of this mailbox') }}</strong> <small>{{ __('(shown once; store it somewhere safe, anyone who has it can read and send messages as this mailbox)') }}</small>

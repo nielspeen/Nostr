@@ -14,6 +14,25 @@ $fail = 0;
 function check($name, $cond, $extra = '') { global $fail; echo ($cond ? "ok   " : "FAIL ") . $name . ($extra !== '' && !$cond ? " -- $extra" : '') . "\n"; if (!$cond) $fail++; }
 $logFile = sys_get_temp_dir().'/nostr-daemon-test.log';
 @unlink($logFile);
+
+// The FreeScout cron would start its own listener as soon as the mailbox is enabled and the two
+// would compete for the heartbeat. Hold the scheduler's mutex for the duration of the test and
+// stop listeners that are already running on this development machine.
+$mutex = null;
+foreach (\Eventy::filter('schedule', new \Illuminate\Console\Scheduling\Schedule())->events() as $event) {
+    if (strpos($event->command, 'nostr:listen') !== false) {
+        $mutex = $event->mutexName();
+    }
+}
+if ($mutex) {
+    \Cache::put($mutex, true, 30);
+}
+foreach (\Helper::getRunningProcesses('nostr:listen') as $pid) {
+    if ((int) $pid !== getmypid()) {
+        posix_kill((int) $pid, SIGTERM);
+    }
+}
+sleep(1);
 $mailbox = \App\Mailbox::first();
 $before = ['conv' => Conversation::max('id'), 'cust' => Customer::max('id')];
 $existingCfg = NostrMailbox::where('mailbox_id', $mailbox->id)->first();
@@ -43,6 +62,11 @@ try {
     check('daemon ingested the message live', $ev && $ev->thread_id && $ev->relay === 'wss://nos.lol', $ev ? json_encode($ev->toArray()) : 'not ingested in 30s');
     if ($ev) { printf("     (latency %.1fs)\n", microtime(true) - $t0); $thread = Thread::find($ev->thread_id); check('thread body', $thread && strpos($thread->body, $msg) !== false); }
 
+    // Heartbeat published for the settings page.
+    $status = \Modules\Nostr\Services\ListenerStatus::read();
+    $conn = null; foreach ($status['connections'] ?? [] as $c) { if ($c['url'] === 'wss://nos.lol') $conn = $c; }
+    check('heartbeat shows the connection', $status && $status['pid'] && $conn && $conn['state'] === 'connected' && $conn['caught_up'] && $conn['events'] >= 1 && \Modules\Nostr\Services\ListenerStatus::forMailbox($cfg->fresh())['state'] === 'running', json_encode($status));
+
     // Settings change is picked up by the periodic tick.
     $cfg->setInboxRelays(['wss://nos.lol', 'wss://nostr.mom']); $cfg->save();
     check('daemon noticed settings change', $waitFor('settings changed', 40) && $waitFor('connecting to wss://nostr.mom', 10), file_get_contents($logFile));
@@ -50,6 +74,8 @@ try {
     // SIGTERM stops it cleanly.
     posix_kill($pid, SIGTERM);
     check('daemon stops on SIGTERM', $waitFor('listener stopped', 10), file_get_contents($logFile));
+    $status = \Modules\Nostr\Services\ListenerStatus::read();
+    check('heartbeat records the stop', $status && !empty($status['stopped_at']) && $status['stop_reason'] === 'signal' && \Modules\Nostr\Services\ListenerStatus::forMailbox($cfg->fresh())['state'] === 'stopped', json_encode($status));
     $running = proc_get_status($proc)['running'];
     check('process exited', !$running);
 } catch (\Throwable $e) {
@@ -62,6 +88,10 @@ try {
     foreach (Conversation::where('id', '>', $before['conv'] ?: 0)->where('channel', 90)->get() as $c) { Thread::where('conversation_id', $c->id)->delete(); $c->delete(); }
     foreach (Customer::where('id', '>', $before['cust'] ?: 0)->get() as $c) { CustomerKey::where('customer_id', $c->id)->delete(); CustomerChannel::where('customer_id', $c->id)->delete(); $c->delete(); }
     \DB::table('jobs')->where('payload', 'like', '%nostr.%')->delete();
+    \Option::set('nostr.listener', null);
+    if ($mutex) {
+        \Cache::forget($mutex);
+    }
     if ($existingCfg) { $existingCfg->save(); NostrMailbox::where('mailbox_id', $mailbox->id)->update($existingCfg->getAttributes()); } else { NostrMailbox::where('mailbox_id', $mailbox->id)->delete(); }
     $mailbox->updateFoldersCounters();
     echo "cleanup done: configs=".NostrMailbox::count()." events=".NostrEvent::count()." keys=".CustomerKey::count()." nostr convs=".Conversation::where('channel', 90)->count()."\n";
