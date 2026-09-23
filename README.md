@@ -81,6 +81,14 @@ handles messages as they arrive. The scheduler starts it every minute with `with
 it exits after `listener_lifetime` seconds (default 20 minutes) so a fresh process takes over; relays
 keep the gift wraps, so nothing is lost in between. Its output goes to `storage/logs/nostr-listen.log`.
 
+Only one listener runs per installation: a newly started one (for example right after a module
+update, when FreeScout clears the scheduler's mutex together with its cache) asks the running one to
+stop and takes over. Every gift wrap and every message id is claimed in the database before it is
+processed, so a message delivered by several relays, or seen by two processes, becomes one thread.
+
+"Show original" on a Nostr message shows pseudo headers (X-Nostr-Relay, X-Nostr-From, wrap, seal and
+message ids, timestamps, tags) instead of email headers; sent replies list the relays and their answers.
+
 The mailbox settings page shows whether the listener is running (process, restart time, one row per
 inbox relay with its connection state and last error, FreeScout's cron status) and the tail of its log.
 

@@ -71,8 +71,22 @@ try {
     $cfg->setInboxRelays(['wss://nos.lol', 'wss://nostr.mom']); $cfg->save();
     check('daemon noticed settings change', $waitFor('settings changed', 40) && $waitFor('connecting to wss://nostr.mom', 10), file_get_contents($logFile));
 
+    // A second listener takes over from the running one (what happens after a module update).
+    $logFile2 = $logFile.'.2';
+    @unlink($logFile2);
+    $cmd2 = 'cd '.escapeshellarg(realpath(__DIR__.'/../../..')).' && exec '.escapeshellarg(PHP_BINARY).' artisan nostr:listen --lifetime=120 > '.escapeshellarg($logFile2).' 2>&1';
+    $proc2 = proc_open($cmd2, [], $pipes2);
+    $waitFor2 = function ($needle, $seconds) use ($logFile2) { $t0 = microtime(true); while (microtime(true) - $t0 < $seconds) { if (file_exists($logFile2) && strpos(file_get_contents($logFile2), $needle) !== false) return true; usleep(500000); } return false; };
+    check('newcomer asks the old listener to stop', $waitFor2('asking it to stop', 10), file_exists($logFile2) ? file_get_contents($logFile2) : 'no log');
+    check('old listener stopped on request', $waitFor('listener stopped', 15), file_get_contents($logFile));
+    check('newcomer took over', $waitFor2('listener started', 25) && $waitFor2('caught up with wss://nos.lol', 20), file_get_contents($logFile2));
+    $pid2 = proc_get_status($proc2)['pid'];
+
     // SIGTERM stops it cleanly.
-    posix_kill($pid, SIGTERM);
+    posix_kill($pid2, SIGTERM);
+    $logFile = $logFile2;
+    $waitFor = $waitFor2;
+    $proc = $proc2;
     check('daemon stops on SIGTERM', $waitFor('listener stopped', 10), file_get_contents($logFile));
     $status = \Modules\Nostr\Services\ListenerStatus::read();
     check('heartbeat records the stop', $status && !empty($status['stopped_at']) && $status['stop_reason'] === 'signal' && \Modules\Nostr\Services\ListenerStatus::forMailbox($cfg->fresh())['state'] === 'stopped', json_encode($status));

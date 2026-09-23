@@ -153,16 +153,31 @@ try {
     check('event recorded', $ev && $ev->rumor_id === $rumor1['id'] && $ev->thread_id == $thread1->id && $ev->conversation_id == $conv->id && $ev->relay === 'wss://relay.example.org' && $ev->pubkey === $custPub);
     check('auto reply and profile fetch queued', \DB::table('jobs')->where('payload', 'like', '%nostr.auto_reply%')->exists() && \DB::table('jobs')->where('payload', 'like', '%nostr.fetch_profile%')->exists());
     check('threads_count and preview maintained', $conv->fresh()->threads_count == 1 && $conv->fresh()->preview !== '');
+    $h = $thread1->fresh()->headers;
+    check('pseudo headers stored on the thread', strpos($h, 'X-Nostr-Relay: wss://relay.example.org') !== false && strpos($h, 'X-Nostr-Wrap-Id: '.$wrap1['id']) !== false && strpos($h, 'X-Nostr-Rumor-Id: '.$rumor1['id']) !== false && strpos($h, 'X-Nostr-From: '.Keys::npub($custPub)) !== false && strpos($h, 'X-Nostr-Subject: VPN problem') !== false, $h);
+    $r = req($kernel, 'GET', "/conversation/{$conv->id}"); // warm up route for ajax below
+    $r = req($kernel, 'GET', '/conversation/ajax-html/show_original?thread_id='.$thread1->id);
+    check('show original has a headers tab', $r->getStatusCode() === 200 && strpos($r->getContent(), 'X-Nostr-Relay') !== false, $r->getStatusCode().' '.substr(strip_tags($r->getContent()), 0, 200));
 
     // Duplicate delivery from another relay.
     $count = NostrEvent::count();
     check('duplicate wrap ignored', $handler->handleGiftWrap($cfg, $wrap1, 'wss://other') === null && NostrEvent::count() === $count);
 
+    // The same rumor delivered in a second, differently wrapped gift wrap is a duplicate too.
+    $rumorFixed = ['kind' => 14, 'content' => 'Re-wrapped once per relay', 'tags' => [['p', $cfg->pubkey]], 'created_at' => time() - 5];
+    [$wrapA, $rumorA] = GiftWrap::wrap($rumorFixed, $custPriv, $cfg->pubkey);
+    [$wrapB, $rumorB] = GiftWrap::wrap($rumorFixed, $custPriv, $cfg->pubkey);
+    check('two wraps of one rumor share the rumor id', $wrapA['id'] !== $wrapB['id'] && $rumorA['id'] === $rumorB['id']);
+    $threadA = $handler->handleGiftWrap($cfg, $wrapA, 'wss://relay-a');
+    $threadB = $handler->handleGiftWrap($cfg, $wrapB, 'wss://relay-b');
+    check('second wrap of the same rumor ignored', $threadA && $threadB === null && NostrEvent::where('wrap_id', $wrapB['id'])->value('error') === 'duplicate' && $conv->fresh()->threads_count == 2);
+    check('claim rows carry the final state', NostrEvent::where('wrap_id', $wrapA['id'])->value('status') == NostrEvent::STATUS_OK && NostrEvent::where('status', NostrEvent::STATUS_PROCESSING)->count() === 0);
+
     // Second message reopens the same conversation (after it was closed).
     $conv->status = Conversation::STATUS_CLOSED; $conv->save();
     [$wrap2] = GiftWrap::wrap(['kind' => 14, 'content' => 'Still broken', 'tags' => [['p', $cfg->pubkey]]], $custPriv, $cfg->pubkey);
     $thread2 = $handler->handleGiftWrap($cfg, $wrap2, 'wss://relay.example.org');
-    check('second message appended and reopened', $thread2 && $thread2->conversation_id == $conv->id && $conv->fresh()->status == Conversation::STATUS_ACTIVE && $conv->fresh()->threads_count == 2);
+    check('second message appended and reopened', $thread2 && $thread2->conversation_id == $conv->id && $conv->fresh()->status == Conversation::STATUS_ACTIVE && $conv->fresh()->threads_count == 3);
     check('no second auto reply', \DB::table('jobs')->where('payload', 'like', '%nostr.auto_reply%')->count() === 1);
 
     // Message from a second key of the same customer goes to the same conversation.
@@ -267,6 +282,7 @@ try {
     $elapsed = microtime(true) - $t0;
     $reply = $reply->fresh();
     check('unreachable relays -> send error on thread', $reply->send_status == \App\SendLog::STATUS_SEND_ERROR && strpos((string) $reply->send_status_data, 'relay') !== false, $reply->send_status.' '.$reply->send_status_data);
+    check('outgoing pseudo headers stored', strpos((string) $reply->headers, 'X-Nostr-Relays: ') !== false && strpos((string) $reply->headers, 'failed:') !== false && strpos((string) $reply->headers, 'X-Nostr-To: '.Keys::npub($custPub)) !== false, (string) $reply->headers);
     $out = NostrEvent::where('thread_id', $reply->id)->where('direction', NostrEvent::DIRECTION_OUT)->first();
     check('outgoing event recorded as failed with target relays', $out && $out->status == NostrEvent::STATUS_FAILED && isset($out->getRelays()['ws://127.0.0.1:1']) && isset($out->getRelays()['wss://relay.example.org']), $out ? $out->relays : 'none');
     check('failure was fast', $elapsed < 20, round($elapsed, 1).'s');

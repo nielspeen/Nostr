@@ -39,58 +39,57 @@ class IncomingMessageHandler
     public function handleGiftWrap(NostrMailbox $cfg, array $wrap, $relayUrl = null)
     {
         $wrapId = $wrap['id'] ?? '';
-        if (!EventBuilder::isHex($wrapId, 64) || NostrEvent::seenWrap($wrapId)) {
+        if (!EventBuilder::isHex($wrapId, 64)) {
             return null;
         }
 
         // Which of the mailbox's keys (current or retired) is this for?
         $targets = array_values(array_intersect(array_map('strtolower', EventBuilder::tagValues($wrap, 'p')), $cfg->getAllPubkeys()));
-        if (!$targets) {
-            $this->record($cfg, $wrapId, null, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'not addressed to mailbox');
+        $mailboxPubkey = $targets[0] ?? null;
 
+        // Reserve the wrap first: relays deliver the same wrap more than once, and two
+        // listener processes may see it at the same time. Only one claim succeeds.
+        $claim = NostrEvent::claim($cfg->mailbox_id, $wrapId, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, $relayUrl, $mailboxPubkey);
+        if (!$claim) {
             return null;
         }
-        $mailboxPubkey = $targets[0];
+
+        if (!$mailboxPubkey) {
+            return $this->finish($claim, NostrEvent::STATUS_FAILED, 'not addressed to mailbox');
+        }
         $priv = $cfg->getPrivateKeyFor($mailboxPubkey);
         if (!$priv) {
-            $this->record($cfg, $wrapId, null, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'no key for recipient', null, $mailboxPubkey);
-
-            return null;
+            return $this->finish($claim, NostrEvent::STATUS_FAILED, 'no key for recipient');
         }
 
         try {
             $unwrapped = GiftWrap::unwrap($wrap, $priv, $mailboxPubkey);
         } catch (\Throwable $e) {
             $this->log('wrap '.substr($wrapId, 0, 8).' rejected: '.$e->getMessage());
-            $this->record($cfg, $wrapId, null, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, null, null, $relayUrl, NostrEvent::STATUS_FAILED, $e->getMessage(), null, $mailboxPubkey);
 
-            return null;
+            return $this->finish($claim, NostrEvent::STATUS_FAILED, $e->getMessage());
         }
 
         $rumor = $unwrapped['rumor'];
         $pubkey = $rumor['pubkey'];
         $kind = $rumor['kind'];
+        $claim->pubkey = $pubkey;
+        $claim->kind = $kind;
 
-        if (NostrEvent::seenRumor($rumor['id'])) {
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_OK, 'duplicate', null, $mailboxPubkey);
-
-            return null;
+        // The same message may come in another wrap (one per relay from some clients).
+        if (!$claim->claimRumor($rumor['id'])) {
+            return $this->finish($claim, NostrEvent::STATUS_OK, 'duplicate');
         }
         if ($cfg->hasPubkey($pubkey)) {
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_OK, 'own message', null, $mailboxPubkey);
-
-            return null;
+            return $this->finish($claim, NostrEvent::STATUS_OK, 'own message');
         }
         if (!in_array($kind, [GiftWrap::KIND_DM, GiftWrap::KIND_FILE])) {
             $this->log('unsupported kind '.$kind.' from '.Keys::shortNpub($pubkey));
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'unsupported kind', null, $mailboxPubkey);
 
-            return null;
+            return $this->finish($claim, NostrEvent::STATUS_FAILED, 'unsupported kind');
         }
         if (!in_array($mailboxPubkey, array_map('strtolower', EventBuilder::tagValues($rumor, 'p')))) {
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'not addressed to mailbox', null, $mailboxPubkey);
-
-            return null;
+            return $this->finish($claim, NostrEvent::STATUS_FAILED, 'not addressed to mailbox');
         }
 
         $createdAt = min((int) $rumor['created_at'] ?: time(), time() + self::MAX_FUTURE_SKEW);
@@ -144,12 +143,36 @@ class IncomingMessageHandler
 
         if (!$thread || !$conversation) {
             $this->log('could not create a thread for message from '.Keys::shortNpub($pubkey));
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'could not create thread', null, $mailboxPubkey);
 
-            return null;
+            return $this->finish($claim, NostrEvent::STATUS_FAILED, 'could not create thread');
         }
 
-        $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, $conversation->id, $thread->id, $relayUrl, NostrEvent::STATUS_OK, null, $createdAt, $mailboxPubkey);
+        $claim->conversation_id = $conversation->id;
+        $claim->thread_id = $thread->id;
+        $claim->event_created_at = Carbon::createFromTimestamp($createdAt);
+        $this->finish($claim, NostrEvent::STATUS_OK, null);
+
+        // Shown under "Show original" » headers.
+        try {
+            $thread->headers = self::formatHeaders([
+                'X-Nostr-Protocol' => 'NIP-17 (gift wrap kind 1059, seal kind 13, message kind '.$kind.')',
+                'X-Nostr-From' => Keys::npub($pubkey).' ('.$pubkey.')',
+                'X-Nostr-To' => Keys::npub($mailboxPubkey).' ('.$mailboxPubkey.', '.($mailboxPubkey === $cfg->pubkey ? 'current key' : 'retired key').')',
+                'X-Nostr-Relay' => $relayUrl ?: 'unknown',
+                'X-Nostr-Received' => now()->toIso8601String(),
+                'X-Nostr-Sent' => Carbon::createFromTimestamp((int) $rumor['created_at'])->toIso8601String().' (as stated by the sender)',
+                'X-Nostr-Rumor-Id' => $rumor['id'],
+                'X-Nostr-Seal-Id' => $unwrapped['seal']['id'] ?? '',
+                'X-Nostr-Wrap-Id' => $wrapId,
+                'X-Nostr-Wrap-Created' => Carbon::createFromTimestamp((int) ($wrap['created_at'] ?? 0))->toIso8601String().' (randomized by the sender)',
+                'X-Nostr-Subject' => EventBuilder::firstTag($rumor, 'subject'),
+                'X-Nostr-Reply-To' => EventBuilder::firstTag($rumor, 'e'),
+                'X-Nostr-Tags' => json_encode($rumor['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            ]);
+            $thread->save();
+        } catch (\Throwable $e) {
+            $this->log('could not store headers: '.$e->getMessage());
+        }
 
         $key = CustomerKey::byPubkey($pubkey);
         if ($key) {
@@ -173,6 +196,39 @@ class IncomingMessageHandler
     }
 
     /**
+     * Pseudo email headers describing a Nostr message. Empty values are skipped.
+     */
+    public static function formatHeaders(array $headers)
+    {
+        $lines = [];
+        foreach ($headers as $name => $value) {
+            $value = trim((string) $value);
+            if ($value === '') {
+                continue;
+            }
+            $lines[] = $name.': '.str_replace(["\r", "\n"], ' ', $value);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Final state of a claimed event. Returns null so callers can "return $this->finish(...)".
+     */
+    protected function finish(NostrEvent $event, $status, $error)
+    {
+        try {
+            $event->status = $status;
+            $event->error = $error ? mb_substr($error, 0, 1000) : null;
+            $event->save();
+        } catch (\Throwable $e) {
+            $this->log('could not record event: '.$e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
      * A legacy NIP-04 message (kind 4) addressed to one of the mailbox keys: recorded once so the
      * settings page can show that someone writes with an unsupported protocol.
      *
@@ -192,8 +248,13 @@ class IncomingMessageHandler
             return false;
         }
 
+        $claim = NostrEvent::claim($cfg->mailbox_id, $id, $event['pubkey'], self::KIND_LEGACY_DM, $relayUrl, $targets[0]);
+        if (!$claim) {
+            return false;
+        }
         $this->log('legacy NIP-04 message from '.Keys::shortNpub($event['pubkey']).' ignored (unsupported protocol)');
-        $this->record($cfg, $id, null, $event['pubkey'], self::KIND_LEGACY_DM, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'NIP-04 not supported', (int) ($event['created_at'] ?? 0) ?: null, $targets[0]);
+        $claim->event_created_at = !empty($event['created_at']) ? Carbon::createFromTimestamp((int) $event['created_at']) : null;
+        $this->finish($claim, NostrEvent::STATUS_FAILED, 'NIP-04 not supported');
 
         return true;
     }
@@ -391,30 +452,6 @@ class IncomingMessageHandler
         }
 
         return 'nostr-file-'.substr($id ?: md5($url), 0, 8).'.'.$ext;
-    }
-
-    protected function record(NostrMailbox $cfg, $wrapId, $rumorId, $pubkey, $kind, $conversationId, $threadId, $relayUrl, $status, $error = null, $createdAt = null, $mailboxPubkey = null)
-    {
-        try {
-            $event = new NostrEvent();
-            $event->mailbox_id = $cfg->mailbox_id;
-            $event->mailbox_pubkey = $mailboxPubkey ?: $cfg->pubkey;
-            $event->direction = NostrEvent::DIRECTION_IN;
-            $event->wrap_id = $wrapId;
-            $event->rumor_id = $rumorId;
-            $event->pubkey = (string) $pubkey;
-            $event->kind = (int) $kind;
-            $event->conversation_id = $conversationId;
-            $event->thread_id = $threadId;
-            $event->relay = $relayUrl ? mb_substr($relayUrl, 0, 255) : null;
-            $event->status = $status;
-            $event->error = $error ? mb_substr($error, 0, 1000) : null;
-            $event->event_created_at = $createdAt ? Carbon::createFromTimestamp($createdAt) : null;
-            $event->save();
-        } catch (\Throwable $e) {
-            // Duplicate wrap id (race between relays) or similar: not fatal.
-            $this->log('could not record event: '.$e->getMessage());
-        }
     }
 
     protected function log($message)

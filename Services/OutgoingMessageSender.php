@@ -90,6 +90,7 @@ class OutgoingMessageSender
             'thread_id' => $thread->id,
         ]);
 
+        $thread->headers = $this->headersFor($result, $cfg, $pubkey, $last);
         if ($result['ok']) {
             $thread->send_status = SendLog::STATUS_ACCEPTED;
             $thread->save();
@@ -98,6 +99,30 @@ class OutgoingMessageSender
         }
 
         return $result['ok'];
+    }
+
+    /**
+     * Pseudo email headers for a sent message ("Show original" » headers).
+     */
+    protected function headersFor(array $result, NostrMailbox $cfg, $pubkey, $last = null)
+    {
+        $relays = [];
+        foreach ($result['results'] as $url => $r) {
+            $relays[] = $url.' ('.(!empty($r['ok']) ? 'accepted' : 'failed: '.($r['message'] ?? '')).')';
+        }
+        $from = $result['event']->mailbox_pubkey ?? $cfg->pubkey;
+
+        return IncomingMessageHandler::formatHeaders([
+            'X-Nostr-Protocol' => 'NIP-17 (gift wrap kind 1059, seal kind 13, message kind 14)',
+            'X-Nostr-From' => Keys::npub($from).' ('.$from.', '.($from === $cfg->pubkey ? 'current key' : 'retired key').')',
+            'X-Nostr-To' => Keys::npub($pubkey).' ('.$pubkey.')',
+            'X-Nostr-Relays' => implode(', ', $relays) ?: 'none',
+            'X-Nostr-Sent' => now()->toIso8601String(),
+            'X-Nostr-Rumor-Id' => $result['rumor']['id'] ?? '',
+            'X-Nostr-Wrap-Id' => $result['wrap']['id'] ?? '',
+            'X-Nostr-Reply-To' => $last->rumor_id ?? '',
+            'X-Nostr-Tags' => isset($result['rumor']['tags']) ? json_encode($result['rumor']['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '',
+        ]);
     }
 
     /**
@@ -154,7 +179,7 @@ class OutgoingMessageSender
 
         $this->log(sprintf('reply to %s: %s', Keys::shortNpub($pubkey), $ok ? 'delivered' : 'failed'));
 
-        return ['ok' => $ok, 'results' => $results, 'relays' => $relays, 'event' => $event];
+        return ['ok' => $ok, 'results' => $results, 'relays' => $relays, 'event' => $event, 'wrap' => $wrap, 'rumor' => $rumor];
     }
 
     /**
@@ -191,6 +216,7 @@ class OutgoingMessageSender
             // No person: the line item reads "System sent the Nostr auto reply".
             $thread->customer_id = null;
             $thread->created_by_user_id = null;
+            $thread->headers = $this->headersFor($result, $cfg, $pubkey, $last);
             $thread->save();
 
             $result['event']->thread_id = $thread->id;

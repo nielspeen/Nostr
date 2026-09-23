@@ -43,11 +43,19 @@ class Listener
         $this->logger = $logger;
     }
 
+    /** @var resource|null */
+    protected $lockHandle = null;
+
     /**
      * Stay connected until the lifetime is over or a signal arrives.
+     *
+     * @return bool false when another listener kept running instead
      */
     public function run()
     {
+        if (!$this->acquireLock()) {
+            return false;
+        }
         $this->startedAt = time();
         $this->installSignalHandlers();
         $this->reload();
@@ -83,6 +91,72 @@ class Listener
         }
 
         $this->log('listener stopped');
+        $this->releaseLock();
+
+        return true;
+    }
+
+    /**
+     * Only one listener per installation. FreeScout clears its cache (and with it the
+     * scheduler's mutex) when a module is updated, so a second listener can be started
+     * while the old one still runs. The newcomer asks the old one to stop and takes over.
+     */
+    protected function acquireLock()
+    {
+        $path = storage_path('app/nostr-listen.lock');
+        $this->lockHandle = @fopen($path, 'c+');
+        if (!$this->lockHandle) {
+            $this->log('cannot open '.$path.', running without the single instance lock');
+
+            return true;
+        }
+        if ($this->tryLock()) {
+            return true;
+        }
+
+        rewind($this->lockHandle);
+        $otherPid = (int) trim((string) stream_get_contents($this->lockHandle));
+        if ($otherPid > 0 && $otherPid !== getmypid() && function_exists('posix_kill')) {
+            $this->log('another listener (pid '.$otherPid.') is running, asking it to stop');
+            @posix_kill($otherPid, SIGTERM);
+        } else {
+            $this->log('another listener is running, waiting for it to stop');
+        }
+
+        $deadline = time() + 20;
+        while (time() < $deadline) {
+            usleep(500000);
+            if ($this->tryLock()) {
+                return true;
+            }
+        }
+        $this->log('another listener is still running, exiting');
+        fclose($this->lockHandle);
+        $this->lockHandle = null;
+
+        return false;
+    }
+
+    protected function tryLock()
+    {
+        if (!flock($this->lockHandle, LOCK_EX | LOCK_NB)) {
+            return false;
+        }
+        ftruncate($this->lockHandle, 0);
+        rewind($this->lockHandle);
+        fwrite($this->lockHandle, (string) getmypid());
+        fflush($this->lockHandle);
+
+        return true;
+    }
+
+    protected function releaseLock()
+    {
+        if ($this->lockHandle) {
+            flock($this->lockHandle, LOCK_UN);
+            fclose($this->lockHandle);
+            $this->lockHandle = null;
+        }
     }
 
     /**

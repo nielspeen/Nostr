@@ -31,8 +31,6 @@ class ListenCommand extends Command
             return 0;
         }
 
-        $listener->run();
-
-        return 0;
+        return $listener->run() ? 0 : 0;
     }
 }
