@@ -18,6 +18,9 @@ class IncomingMessageHandler
     // Rumors dated further in the future than this are clamped to now.
     const MAX_FUTURE_SKEW = 900;
 
+    // Legacy NIP-04 direct message. Not supported: recorded and reported, never decrypted.
+    const KIND_LEGACY_DM = 4;
+
     /** @var callable|null */
     protected $logger;
 
@@ -167,6 +170,32 @@ class IncomingMessageHandler
             Keys::shortNpub($pubkey), $conversation->number, $new ? 'new' : 'reopened'));
 
         return $thread;
+    }
+
+    /**
+     * A legacy NIP-04 message (kind 4) addressed to one of the mailbox keys: recorded once so the
+     * settings page can show that someone writes with an unsupported protocol.
+     *
+     * @return bool true when it was new and recorded
+     */
+    public function handleLegacyMessage(NostrMailbox $cfg, array $event, $relayUrl = null)
+    {
+        $id = $event['id'] ?? '';
+        if (!EventBuilder::isHex($id, 64) || NostrEvent::seenWrap($id)) {
+            return false;
+        }
+        if (!EventBuilder::verify($event)) {
+            return false;
+        }
+        $targets = array_values(array_intersect(array_map('strtolower', EventBuilder::tagValues($event, 'p')), $cfg->getAllPubkeys()));
+        if (!$targets || $cfg->hasPubkey($event['pubkey'])) {
+            return false;
+        }
+
+        $this->log('legacy NIP-04 message from '.Keys::shortNpub($event['pubkey']).' ignored (unsupported protocol)');
+        $this->record($cfg, $id, null, $event['pubkey'], self::KIND_LEGACY_DM, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'NIP-04 not supported', (int) ($event['created_at'] ?? 0) ?: null, $targets[0]);
+
+        return true;
     }
 
     /**

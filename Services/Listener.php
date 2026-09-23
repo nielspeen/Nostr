@@ -97,7 +97,9 @@ class Listener
             $this->log(sprintf('mailbox %d: %d gift wrap(s) on %d relay(s)', $cfg->mailbox_id, count($events), count($cfg->getInboxRelays())));
             foreach ($events as $event) {
                 try {
-                    if ($this->handler->handleGiftWrap($cfg, $event, null)) {
+                    if ((int) $event['kind'] === IncomingMessageHandler::KIND_LEGACY_DM) {
+                        $this->handler->handleLegacyMessage($cfg, $event, null);
+                    } elseif ($this->handler->handleGiftWrap($cfg, $event, null)) {
                         $count++;
                     }
                 } catch (\Throwable $e) {
@@ -139,7 +141,8 @@ class Listener
     protected function filter(NostrMailbox $cfg)
     {
         return [
-            'kinds' => [GiftWrap::KIND_WRAP],
+            // Legacy NIP-04 messages (kind 4) are subscribed too, so that they can be reported.
+            'kinds' => [GiftWrap::KIND_WRAP, IncomingMessageHandler::KIND_LEGACY_DM],
             '#p' => $cfg->getAllPubkeys(),
             'since' => time() - (int) config('nostr.lookback', 3 * 86400),
         ];
@@ -183,6 +186,8 @@ class Listener
                     'caught_up' => false,
                     'events' => 0,
                     'last_event_at' => null,
+                    'legacy' => 0,
+                    'last_legacy_at' => null,
                     'error' => null,
                 ];
             }
@@ -329,6 +334,8 @@ class Listener
                 $event = EventBuilder::fromJson($data[2] ?? null);
                 if ($event && (int) $event['kind'] === GiftWrap::KIND_WRAP) {
                     $this->handleEvent($key, $event);
+                } elseif ($event && (int) $event['kind'] === IncomingMessageHandler::KIND_LEGACY_DM) {
+                    $this->handleLegacy($key, $event);
                 }
                 break;
 
@@ -413,6 +420,23 @@ class Listener
             \Log::error('[Nostr] '.$e->getMessage(), ['exception' => $e]);
         }
         $this->publishStatus();
+    }
+
+    protected function handleLegacy($key, array $event)
+    {
+        $state = $this->connections[$key];
+        try {
+            $recorded = $this->withDb(function () use ($state, $event) {
+                return $this->handler->handleLegacyMessage($state['cfg'], $event, $state['url']);
+            });
+            if ($recorded) {
+                $this->connections[$key]['legacy']++;
+                $this->connections[$key]['last_legacy_at'] = time();
+                $this->publishStatus();
+            }
+        } catch (\Throwable $e) {
+            $this->log('error recording legacy message: '.$e->getMessage());
+        }
     }
 
     protected function onClose($key, $error)
@@ -517,6 +541,8 @@ class Listener
                 'authed' => $state['authed'],
                 'events' => $state['events'],
                 'last_event_at' => $state['last_event_at'],
+                'legacy' => $state['legacy'],
+                'last_legacy_at' => $state['last_legacy_at'],
                 'error' => $state['error'],
                 'retry_in' => $connectionState === 'reconnecting' ? max(0, $state['retry_at'] - time()) : null,
             ];

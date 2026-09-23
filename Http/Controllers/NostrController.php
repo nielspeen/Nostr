@@ -12,6 +12,7 @@ use Modules\Nostr\Entities\MailboxKey;
 use Modules\Nostr\Entities\NostrEvent;
 use Modules\Nostr\Entities\NostrMailbox;
 use Modules\Nostr\Services\Announcer;
+use Modules\Nostr\Services\Diagnostics;
 use Modules\Nostr\Services\Keys;
 use Modules\Nostr\Services\ListenerStatus;
 
@@ -47,6 +48,9 @@ class NostrController extends Controller
             'stats' => $stats,
             'retired_keys' => $cfg->exists ? $cfg->getRetiredKeys() : collect(),
             'listener' => ListenerStatus::forMailbox($cfg),
+            'legacy' => $cfg->exists ? NostrEvent::where('mailbox_id', $mailbox->id)->where('kind', \Modules\Nostr\Services\IncomingMessageHandler::KIND_LEGACY_DM)->orderBy('id', 'desc')->first() : null,
+            'legacy_count' => $cfg->exists ? NostrEvent::where('mailbox_id', $mailbox->id)->where('kind', \Modules\Nostr\Services\IncomingMessageHandler::KIND_LEGACY_DM)->count() : 0,
+            'diagnose' => session('nostr_diagnose'),
             'nip05_json' => $nip05Json,
             'nip05_url' => $cfg->getNip05Domain() ? 'https://'.$cfg->getNip05Domain().'/.well-known/nostr.json' : '',
         ]);
@@ -126,6 +130,16 @@ class NostrController extends Controller
                 }
                 // Shown once on the next page load, never stored in the session longer than that.
                 \Session::flash('nostr_reveal_nsec', $cfg->getNsec());
+                break;
+
+            case 'diagnose':
+                if (!$cfg->pubkey || !$cfg->getPrivateKey()) {
+                    \Session::flash('flash_error_floating', __('Generate a key first.'));
+                    break;
+                }
+                set_time_limit(120);
+                $result = (new Diagnostics())->run($cfg, 5);
+                \Session::flash('nostr_diagnose', $result);
                 break;
 
             case 'delete_key':

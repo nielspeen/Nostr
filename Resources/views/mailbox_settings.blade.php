@@ -149,6 +149,50 @@
                             </table>
                         @endif
 
+                        @if (!empty($legacy_count))
+                            <p class="text-warning">
+                                {{ __(':count message(s) arrived as legacy NIP-04 direct messages, which this channel does not support; the last one :ago from :npub.', ['count' => $legacy_count, 'ago' => $legacy && $legacy->created_at ? $legacy->created_at->diffForHumans() : '', 'npub' => $legacy ? \Modules\Nostr\Services\Keys::shortNpub($legacy->pubkey) : '']) }}
+                                {{ __('Ask the sender to use a client that speaks NIP-17 (Damus 1.18 or newer with legacy DMs off, Amethyst, 0xchat, Primal).') }}
+                            </p>
+                        @endif
+
+                        @if ($lstate != 'disabled')
+                            <form method="POST" action="{{ route('mailboxes.nostr.save', ['id' => $mailbox->id]) }}" class="form-inline">
+                                {{ csrf_field() }}
+                                <input type="hidden" name="action" value="diagnose">
+                                <button type="submit" class="btn btn-default btn-sm">{{ __('Check relays') }}</button>
+                                <small class="text-help">{{ __('Asks each relay what it holds for this mailbox (takes up to a minute).') }}</small>
+                            </form>
+                        @endif
+
+                        @if (!empty($diagnose['relays']))
+                            <table class="table table-condensed margin-top">
+                                <thead>
+                                    <tr>
+                                        <th>{{ __('Relay') }}</th>
+                                        <th>{{ __('Connection') }}</th>
+                                        <th>{{ __('Gift wraps (3 days)') }}</th>
+                                        <th>{{ __('Legacy NIP-04') }}</th>
+                                        <th>{{ __('Profile') }}</th>
+                                        <th>{{ __('DM relay list') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($diagnose['relays'] as $url => $row)
+                                        <tr>
+                                            <td><code>{{ $url }}</code>@if (!empty($row['inbox'])) <small class="text-help">{{ __('inbox') }}</small>@endif</td>
+                                            <td>@if ($row['ok'])<span class="label label-success">{{ __('ok') }}</span>@else<span class="label label-danger">{{ __('failed') }}</span> <small class="text-danger">{{ $row['error'] }}</small>@endif</td>
+                                            <td>{{ $row['wraps'] }}@if ($row['unseen_wraps']) <span class="label label-warning">{{ __(':n not yet received', ['n' => $row['unseen_wraps']]) }}</span>@endif</td>
+                                            <td>{{ $row['legacy'] }}</td>
+                                            <td>{{ $row['profile'] ? __('found') : __('missing') }}</td>
+                                            <td>@if ($row['dm_relays'] === null){{ __('missing') }}@else<small>{{ implode(' ', $row['dm_relays']) }}</small>@endif</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                            <p class="text-help">{{ __('"Not yet received" gift wraps sit on a relay the listener does not watch or arrived while it was down; add that relay to the inbox relays or wait for the next run. A missing DM relay list on the relays a sender uses means their client cannot find where to deliver: publish the profile again.') }}</p>
+                        @endif
+
                         @if ($listener['log'] !== '')
                             <p><a data-toggle="collapse" href="#nostr-listener-log" class="btn btn-default btn-xs">{{ __('Show listener log') }}</a> <small class="text-help">storage/logs/nostr-listen.log</small></p>
                             <div id="nostr-listener-log" class="collapse"><pre style="max-height: 300px; overflow: auto;">{{ $listener['log'] }}</pre></div>

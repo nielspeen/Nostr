@@ -206,6 +206,14 @@ try {
     [$wrapK] = GiftWrap::wrap(['kind' => 4, 'content' => 'x', 'tags' => [['p', $cfg->pubkey]]], $custPriv, $cfg->pubkey);
     check('unsupported kind logged and skipped', $handler->handleGiftWrap($cfg, $wrapK, null) === null && NostrEvent::where('wrap_id', $wrapK['id'])->value('error') === 'unsupported kind');
 
+    // Legacy NIP-04 messages are recorded once, never turned into conversations, and reported on the page.
+    $legacy = \Modules\Nostr\Services\EventBuilder::finalize(['kind' => 4, 'content' => 'ciphertext?iv=abc', 'tags' => [['p', $cfg->pubkey]]], $custPriv);
+    $convCount = Conversation::count();
+    check('legacy message recorded', $handler->handleLegacyMessage($cfg, $legacy, 'wss://relay.example.org') === true && Conversation::count() === $convCount);
+    check('legacy message not recorded twice', $handler->handleLegacyMessage($cfg, $legacy, 'wss://relay.example.org') === false && NostrEvent::where('wrap_id', $legacy['id'])->count() === 1 && NostrEvent::where('wrap_id', $legacy['id'])->value('kind') == 4);
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('page reports legacy messages', strpos($r->getContent(), 'legacy NIP-04 direct messages') !== false && strpos($r->getContent(), 'Check relays') !== false, $r->getStatusCode());
+
     // Kind 15 file message with a fake unreachable URL falls back to text.
     [$wrapF] = GiftWrap::wrap(['kind' => 15, 'content' => 'http://127.0.0.1:1/file.bin', 'tags' => [['p', $cfg->pubkey], ['file-type', 'image/png'], ['encryption-algorithm', 'aes-gcm'], ['decryption-key', bin2hex(random_bytes(32))], ['decryption-nonce', bin2hex(random_bytes(12))]]], $custPriv, $cfg->pubkey);
     $threadF = $handler->handleGiftWrap($cfg, $wrapF, null);

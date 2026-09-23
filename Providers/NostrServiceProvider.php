@@ -7,6 +7,7 @@ use App\CustomerChannel;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Modules\Nostr\Console\AnnounceCommand;
+use Modules\Nostr\Console\DiagnoseCommand;
 use Modules\Nostr\Console\ListenCommand;
 use Modules\Nostr\Entities\CustomerKey;
 use Modules\Nostr\Entities\NostrEvent;
@@ -361,6 +362,7 @@ class NostrServiceProvider extends ServiceProvider
     {
         $this->commands(ListenCommand::class);
         $this->commands(AnnounceCommand::class);
+        $this->commands(DiagnoseCommand::class);
     }
 
     public function provides()

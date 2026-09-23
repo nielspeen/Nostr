@@ -11,7 +11,8 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
   replacing a key needs the admin's password and a typed confirmation, and the old key is retired
   rather than deleted (see below).
 - Receives NIP-17 private direct messages (kind 14 text, kind 15 encrypted files) wrapped per
-  NIP-59 and encrypted with NIP-44. Legacy NIP-04 messages are ignored.
+  NIP-59 and encrypted with NIP-44. Legacy NIP-04 messages are never decrypted; they are counted
+  and reported on the settings page so you know a sender uses a client that lacks NIP-17.
 - A new message reopens the customer's latest Nostr conversation in that mailbox if it had activity
   within the reopen window (default 30 days); otherwise a new conversation is started.
 - Unknown senders become new customers. Their name and picture are filled in from their
@@ -85,6 +86,9 @@ inbox relay with its connection state and last error, FreeScout's cron status) a
 
 - `php artisan nostr:listen --once` fetches pending messages once and exits (handy for testing).
 - `php artisan nostr:announce` republishes the profile and relay lists (also runs daily).
+- `php artisan nostr:diagnose` (or "Check relays" on the settings page) asks every relay what it holds
+  for the mailbox: gift wraps of the last days and whether they were received, legacy NIP-04
+  messages, and whether the profile and DM relay list are visible there.
 
 ## Customers and keys
 
