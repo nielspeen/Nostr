@@ -7,6 +7,33 @@
     @include('mailboxes/sidebar_menu')
 @endsection
 
+@section('javascript')
+    @parent
+    // Copy buttons. Inline onclick handlers are blocked by the content security policy,
+    // so the handler lives here, in the page script block.
+    $('.nostr-copy').on('click', function (e) {
+        e.preventDefault();
+        var button = $(this);
+        var text = String(button.data('copy'));
+        var done = function () {
+            var label = button.text();
+            button.text('{{ __('Copied') }}');
+            setTimeout(function () { button.text(label); }, 1500);
+        };
+        var fallback = function () {
+            var area = $('<textarea readonly>').val(text).css({position: 'fixed', top: 0, left: 0, opacity: 0}).appendTo('body');
+            area[0].select();
+            try { if (document.execCommand('copy')) { done(); } } catch (err) {}
+            area.remove();
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(done, fallback);
+        } else {
+            fallback();
+        }
+    });
+@endsection
+
 @section('content')
 
     <div class="section-heading">
@@ -29,9 +56,9 @@
                         <div class="panel-body">
                             <dl class="dl-horizontal margin-bottom-0">
                                 <dt>{{ __('Public key') }}</dt>
-                                <dd><code id="nostr-npub">{{ $cfg->getNpub() }}</code> <a href="#" class="btn btn-default btn-xs" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('nostr-npub').textContent); return false;">{{ __('Copy') }}</a></dd>
+                                <dd><code>{{ $cfg->getNpub() }}</code> <a href="#" class="btn btn-default btn-xs nostr-copy" data-copy="{{ $cfg->getNpub() }}">{{ __('Copy') }}</a></dd>
                                 <dt>{{ __('Hex') }}</dt>
-                                <dd><small class="text-help">{{ $cfg->pubkey }}</small></dd>
+                                <dd><small class="text-help">{{ $cfg->pubkey }}</small> <a href="#" class="btn btn-default btn-xs nostr-copy" data-copy="{{ $cfg->pubkey }}">{{ __('Copy') }}</a></dd>
                                 <dt>{{ __('Key since') }}</dt>
                                 <dd>{{ $cfg->key_created_at ? App\User::dateFormat($cfg->key_created_at) : '' }}</dd>
                                 @if ($cfg->getNip05())
