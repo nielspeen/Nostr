@@ -1,0 +1,25 @@
+{
+    "name": "Nostr",
+    "alias": "nostr",
+    "description": "Customer support over Nostr: receive NIP-17 private direct messages as conversations and reply from FreeScout.",
+    "version": "0.1.0",
+    "requiredAppVersion": "1.8.191",
+    "detailsUrl": "https://github.com/nielspeen/nostr",
+    "author": "Niels Peen",
+    "authorUrl": "https://github.com/nielspeen",
+    "license": "AGPL-3.0",
+    "keywords": ["nostr", "channel", "chat", "nip-17", "direct messages"],
+    "active": 0,
+    "order": 0,
+    "providers": [
+        "Modules\\Nostr\\Providers\\NostrServiceProvider"
+    ],
+    "aliases": {},
+    "files": [
+        "start.php"
+    ],
+    "requires": [],
+    "img": "/modules/nostr/nostr.png",
+    "latestVersionUrl": "https://raw.githubusercontent.com/nielspeen/nostr/refs/heads/main/module.json",
+    "latestVersionZipUrl": "https://github.com/nielspeen/nostr/archive/refs/heads/main.zip"
+}

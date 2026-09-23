@@ -1,0 +1,1 @@
+<li @if (Route::currentRouteName() == 'mailboxes.nostr')class="active"@endif><a href="{{ route('mailboxes.nostr', ['id'=>$mailbox->id]) }}"><i class="glyphicon glyphicon-flash"></i> {{ __('Nostr') }}</a></li>

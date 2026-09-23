@@ -1,0 +1,24 @@
+{
+    "name": "nielspeen/nostr",
+    "description": "Nostr channel for FreeScout: customer support over NIP-17 private direct messages.",
+    "license": "AGPL-3.0",
+    "authors": [
+        {
+            "name": "Niels Peen",
+            "email": "hello@nielspeen.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "swentel/nostr-php": "^1.9.4",
+        "ratchet/pawl": "^0.4.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Nostr\\": ""
+        }
+    },
+    "config": {
+        "platform-check": false
+    }
+}
