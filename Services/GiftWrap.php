@@ -3,7 +3,7 @@
 namespace Modules\Nostr\Services;
 
 use Modules\Nostr\Crypto\Schnorr;
-use swentel\nostr\Encryption\Nip44;
+use Modules\Nostr\Crypto\Nip44;
 
 /**
  * NIP-59 gift wrapping (rumor -> seal -> wrap) with NIP-44 encryption,
@@ -35,7 +35,7 @@ class GiftWrap
 
         $rumor = EventBuilder::rumor($rumor, $senderPub);
 
-        $sealKey = Nip44::getConversationKey($senderPriv, $recipientPub);
+        $sealKey = Nip44::conversationKey($senderPriv, $recipientPub);
         $seal = EventBuilder::finalize([
             'kind' => self::KIND_SEAL,
             'created_at' => self::randomPastTime(),
@@ -44,7 +44,7 @@ class GiftWrap
         ], $senderPriv);
 
         $ephemeralPriv = Keys::generatePrivateKey();
-        $wrapKey = Nip44::getConversationKey($ephemeralPriv, $recipientPub);
+        $wrapKey = Nip44::conversationKey($ephemeralPriv, $recipientPub);
         $wrap = EventBuilder::finalize([
             'kind' => self::KIND_WRAP,
             'created_at' => self::randomPastTime(),
@@ -76,7 +76,7 @@ class GiftWrap
             throw new \RuntimeException('Gift wrap is not addressed to this key');
         }
 
-        $wrapKey = Nip44::getConversationKey($recipientPriv, $wrap['pubkey']);
+        $wrapKey = Nip44::conversationKey($recipientPriv, $wrap['pubkey']);
         $seal = self::decode(Nip44::decrypt($wrap['content'], $wrapKey));
         if (!$seal || (int) ($seal['kind'] ?? 0) !== self::KIND_SEAL) {
             throw new \RuntimeException('Invalid seal');
@@ -85,7 +85,7 @@ class GiftWrap
             throw new \RuntimeException('Invalid seal signature');
         }
 
-        $sealKey = Nip44::getConversationKey($recipientPriv, $seal['pubkey']);
+        $sealKey = Nip44::conversationKey($recipientPriv, $seal['pubkey']);
         $rumor = self::decode(Nip44::decrypt($seal['content'], $sealKey));
         if (!$rumor || !isset($rumor['kind'], $rumor['pubkey'], $rumor['content'])) {
             throw new \RuntimeException('Invalid rumor');

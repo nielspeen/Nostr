@@ -39,10 +39,12 @@ if (!class_exists('Modules\\Nostr\\Providers\\NostrVendorLoader', false)) {
             }
             $loader->register(false);
 
-            foreach (require $vendor.'/composer/autoload_files.php' as $identifier => $file) {
-                if (empty($GLOBALS['__composer_autoload_files'][$identifier])) {
-                    require $file;
-                    $GLOBALS['__composer_autoload_files'][$identifier] = true;
+            if (is_file($vendor.'/composer/autoload_files.php')) {
+                foreach (require $vendor.'/composer/autoload_files.php' as $identifier => $file) {
+                    if (empty($GLOBALS['__composer_autoload_files'][$identifier])) {
+                        require $file;
+                        $GLOBALS['__composer_autoload_files'][$identifier] = true;
+                    }
                 }
             }
         }

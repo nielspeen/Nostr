@@ -3,23 +3,22 @@
 namespace Modules\Nostr\Services;
 
 use Modules\Nostr\Entities\NostrMailbox;
-use Modules\Nostr\Services\Websocket\Connector;
-use Modules\Nostr\Services\Websocket\ReactCompat;
-use Ratchet\Client\WebSocket;
-use Ratchet\RFC6455\Messaging\Frame;
-use Ratchet\RFC6455\Messaging\MessageInterface;
+use Modules\Nostr\Services\Websocket\Client;
 
 /**
  * Long-running relay listener: keeps one websocket per (mailbox, inbox relay),
- * subscribes to gift wraps addressed to the mailbox key and hands them to the
+ * subscribes to gift wraps addressed to the mailbox keys and hands them to the
  * IncomingMessageHandler. Reconnects with backoff, answers NIP-42 AUTH, picks up
- * settings changes and exits after its lifetime so the scheduler restarts it.
+ * settings changes, publishes a heartbeat and exits after its lifetime so the
+ * scheduler restarts it. Plain stream_select(), no event loop library.
  */
 class Listener
 {
     const TICK = 30;
     const MIN_BACKOFF = 5;
     const MAX_BACKOFF = 300;
+    // No bytes from the relay (not even a pong) for this long: reconnect.
+    const IDLE_TIMEOUT = 120;
 
     /** @var IncomingMessageHandler */
     protected $handler;
@@ -30,8 +29,6 @@ class Listener
     /** @var int */
     protected $lifetime;
 
-    protected $loop;
-    protected $connector;
     protected $startedAt;
     protected $stopping = false;
     protected $fingerprint = '';
@@ -52,28 +49,39 @@ class Listener
     public function run()
     {
         $this->startedAt = time();
-        $this->loop = ReactCompat::loop();
-        $this->connector = new Connector($this->loop, ReactCompat::socketConnector(['timeout' => 20], $this->loop));
-        $this->log('using '.ReactCompat::describe());
-
+        $this->installSignalHandlers();
         $this->reload();
+        $this->log('listener started (lifetime '.$this->lifetime.'s)');
+        $this->publishStatus();
 
-        $this->loop->addPeriodicTimer(self::TICK, function () {
-            $this->tick();
-        });
+        $nextTick = time() + self::TICK;
+        while (!$this->stopping) {
+            $this->connectDue();
 
-        if (function_exists('pcntl_signal') && defined('SIGTERM')) {
-            foreach ([SIGTERM, SIGINT] as $signal) {
-                $this->loop->addSignal($signal, function () {
-                    $this->log('signal received, stopping');
-                    $this->stop('signal');
-                });
+            $read = [];
+            $write = [];
+            foreach ($this->connections as $state) {
+                if ($state['client']) {
+                    $state['client']->selectSets($read, $write);
+                }
+            }
+            if ($read || $write) {
+                $except = null;
+                @stream_select($read, $write, $except, 1);
+            } else {
+                usleep(500000);
+            }
+
+            foreach (array_keys($this->connections) as $key) {
+                $this->service($key);
+            }
+
+            if (time() >= $nextTick) {
+                $this->tick();
+                $nextTick = time() + self::TICK;
             }
         }
 
-        $this->log('listener started (lifetime '.$this->lifetime.'s)');
-        $this->publishStatus();
-        $this->loop->run();
         $this->log('listener stopped');
     }
 
@@ -104,49 +112,27 @@ class Listener
 
     public function stop($reason = 'signal')
     {
+        if ($this->stopping) {
+            return;
+        }
         $this->stopping = true;
         $this->publishStatus($reason);
         foreach (array_keys($this->connections) as $key) {
             $this->drop($key);
         }
-        if ($this->loop) {
-            $this->loop->stop();
-        }
     }
 
-    /**
-     * Heartbeat for the settings page: process info and the state of every connection.
-     */
-    protected function publishStatus($stopReason = null)
+    protected function installSignalHandlers()
     {
-        $connections = [];
-        foreach ($this->connections as $state) {
-            $connections[] = [
-                'mailbox_id' => $state['cfg']->mailbox_id,
-                'url' => $state['url'],
-                'state' => $state['conn'] ? 'connected' : ($state['timer'] ? 'reconnecting' : 'connecting'),
-                'since' => $state['since'],
-                'caught_up' => $state['caught_up'],
-                'authed' => $state['authed'],
-                'events' => $state['events'],
-                'last_event_at' => $state['last_event_at'],
-                'error' => $state['error'],
-                'retry_in' => $state['timer'] ? $state['backoff'] : null,
-            ];
+        if (!function_exists('pcntl_async_signals') || !function_exists('pcntl_signal') || !defined('SIGTERM')) {
+            return;
         }
-        try {
-            ListenerStatus::write([
-                'pid' => getmypid(),
-                'host' => gethostname(),
-                'started_at' => $this->startedAt,
-                'lifetime' => $this->lifetime,
-                'ends_at' => $this->startedAt + $this->lifetime,
-                'stopped_at' => $stopReason ? time() : null,
-                'stop_reason' => $stopReason,
-                'connections' => $connections,
-            ]);
-        } catch (\Throwable $e) {
-            $this->log('could not write status: '.$e->getMessage());
+        pcntl_async_signals(true);
+        foreach ([SIGTERM, SIGINT] as $signal) {
+            pcntl_signal($signal, function () {
+                $this->log('signal received, stopping');
+                $this->stop('signal');
+            });
         }
     }
 
@@ -165,7 +151,6 @@ class Listener
     protected function reload()
     {
         $wanted = [];
-        $this->fingerprint = '';
         $parts = [];
 
         foreach (NostrMailbox::active() as $cfg) {
@@ -186,20 +171,20 @@ class Listener
                 $this->connections[$key] = [
                     'cfg' => $cfg,
                     'url' => $url,
-                    'conn' => null,
+                    'client' => null,
+                    'opened' => false,
+                    'retry_at' => time(),
                     'backoff' => 0,
                     'sub' => null,
                     'challenge' => null,
                     'authed' => false,
                     'auth_event_id' => null,
-                    'timer' => null,
                     'since' => null,
                     'caught_up' => false,
                     'events' => 0,
                     'last_event_at' => null,
                     'error' => null,
                 ];
-                $this->connect($key);
             }
         }
         $this->fingerprint = md5(implode('|', $parts));
@@ -225,31 +210,80 @@ class Listener
         return md5(implode('|', $parts));
     }
 
-    protected function connect($key)
+    /**
+     * Start connections whose retry time has come.
+     */
+    protected function connectDue()
     {
-        if ($this->stopping || !isset($this->connections[$key])) {
+        if ($this->stopping) {
             return;
         }
-        $url = $this->connections[$key]['url'];
-        $this->log('connecting to '.$url.' for mailbox '.$this->connections[$key]['cfg']->mailbox_id);
-
-        $connector = $this->connector;
-        $connector($url)->then(function (WebSocket $conn) use ($key) {
-            $this->onOpen($key, $conn);
-        }, function ($e) use ($key) {
-            $this->onFailure($key, $e instanceof \Throwable ? $e->getMessage() : 'connection failed');
-        });
+        foreach ($this->connections as $key => $state) {
+            if (!$state['client'] && $state['retry_at'] !== null && time() >= $state['retry_at']) {
+                $this->connect($key);
+            }
+        }
     }
 
-    protected function onOpen($key, WebSocket $conn)
+    protected function connect($key)
     {
-        if ($this->stopping || !isset($this->connections[$key])) {
-            $conn->close();
+        $state = &$this->connections[$key];
+        $this->log('connecting to '.$state['url'].' for mailbox '.$state['cfg']->mailbox_id);
+        $state['retry_at'] = null;
+        $state['opened'] = false;
+        $state['sub'] = null;
+
+        try {
+            $client = new Client($state['url']);
+        } catch (\Throwable $e) {
+            $state['error'] = $e->getMessage();
+            $this->log('invalid relay '.$state['url'].': '.$e->getMessage());
+            $state['retry_at'] = time() + self::MAX_BACKOFF;
 
             return;
         }
+        $client->connect();
+        $state['client'] = $client;
+        // A refused or timed out connection shows up as a closed client in service().
+    }
+
+    /**
+     * Drive one connection: state changes, incoming messages, failures.
+     */
+    protected function service($key)
+    {
+        if (!isset($this->connections[$key]) || !$this->connections[$key]['client']) {
+            return;
+        }
+        $client = $this->connections[$key]['client'];
+        $wasOpen = $this->connections[$key]['opened'];
+
+        $client->tick();
+
+        if ($client->isOpen() && !$wasOpen) {
+            $this->onOpen($key);
+        }
+        foreach ($client->messages() as $payload) {
+            if (!isset($this->connections[$key]) || $this->connections[$key]['client'] !== $client) {
+                return;
+            }
+            $this->onMessage($key, $payload);
+        }
+        if (!isset($this->connections[$key]) || $this->connections[$key]['client'] !== $client) {
+            return;
+        }
+        if ($client->isClosed()) {
+            $this->onClose($key, $client->getError() ?: 'connection closed');
+        } elseif ($client->isOpen() && time() - $client->getLastActivity() > self::IDLE_TIMEOUT) {
+            $client->close();
+            $this->onClose($key, 'no data for '.self::IDLE_TIMEOUT.'s');
+        }
+    }
+
+    protected function onOpen($key)
+    {
         $state = &$this->connections[$key];
-        $state['conn'] = $conn;
+        $state['opened'] = true;
         $state['backoff'] = 0;
         $state['authed'] = false;
         $state['challenge'] = null;
@@ -258,39 +292,29 @@ class Listener
         $state['caught_up'] = false;
         $state['error'] = null;
         $this->log('connected to '.$state['url']);
-        $this->publishStatus();
-
-        $conn->on('message', function (MessageInterface $msg) use ($key) {
-            $this->onMessage($key, (string) $msg);
-        });
-        $conn->on('close', function ($code = null, $reason = null) use ($key) {
-            $this->onClose($key, $code, $reason);
-        });
-        $conn->on('error', function ($e) use ($key) {
-            $this->log('error on '.($this->connections[$key]['url'] ?? $key).': '.($e instanceof \Throwable ? $e->getMessage() : (string) $e));
-        });
-
         $this->subscribe($key);
+        $this->publishStatus();
     }
 
     protected function subscribe($key)
     {
         $state = &$this->connections[$key];
-        if (!$state['conn']) {
+        if (!$state['client'] || !$state['client']->isOpen()) {
             return;
         }
-        if ($state['sub']) {
-            $state['conn']->send(RelayClient::encode(['CLOSE', $state['sub']]));
+        try {
+            if ($state['sub']) {
+                $state['client']->send(RelayClient::encode(['CLOSE', $state['sub']]));
+            }
+            $state['sub'] = 'fs'.bin2hex(random_bytes(6));
+            $state['client']->send(RelayClient::encode(['REQ', $state['sub'], $this->filter($state['cfg'])]));
+        } catch (\Throwable $e) {
+            $this->log('could not subscribe on '.$state['url'].': '.$e->getMessage());
         }
-        $state['sub'] = 'fs'.bin2hex(random_bytes(6));
-        $state['conn']->send(RelayClient::encode(['REQ', $state['sub'], $this->filter($state['cfg'])]));
     }
 
     protected function onMessage($key, $payload)
     {
-        if (!isset($this->connections[$key])) {
-            return;
-        }
         $state = &$this->connections[$key];
         $data = json_decode($payload, true);
         if (!is_array($data)) {
@@ -359,7 +383,7 @@ class Listener
     protected function auth($key)
     {
         $state = &$this->connections[$key];
-        if (!$state['conn'] || $state['challenge'] === null) {
+        if (!$state['client'] || !$state['client']->isOpen() || $state['challenge'] === null) {
             return;
         }
         try {
@@ -369,7 +393,7 @@ class Listener
                 'content' => '',
             ], $state['cfg']->getPrivateKey());
             $state['auth_event_id'] = $event['id'];
-            $state['conn']->send(RelayClient::encode(['AUTH', $event]));
+            $state['client']->send(RelayClient::encode(['AUTH', $event]));
         } catch (\Throwable $e) {
             $this->log('could not authenticate with '.$state['url'].': '.$e->getMessage());
         }
@@ -391,25 +415,17 @@ class Listener
         $this->publishStatus();
     }
 
-    protected function onClose($key, $code, $reason)
+    protected function onClose($key, $error)
     {
         if (!isset($this->connections[$key])) {
             return;
         }
-        $this->connections[$key]['conn'] = null;
-        $this->connections[$key]['sub'] = null;
-        $this->connections[$key]['error'] = trim('closed '.$code.' '.$reason);
-        $this->log('connection to '.$this->connections[$key]['url'].' closed ('.$code.' '.$reason.')');
-        $this->scheduleReconnect($key);
-    }
-
-    protected function onFailure($key, $message)
-    {
-        if (!isset($this->connections[$key])) {
-            return;
-        }
-        $this->connections[$key]['error'] = mb_substr((string) $message, 0, 300);
-        $this->log('could not connect to '.$this->connections[$key]['url'].': '.$message);
+        $state = &$this->connections[$key];
+        $state['client'] = null;
+        $state['opened'] = false;
+        $state['sub'] = null;
+        $state['error'] = mb_substr((string) $error, 0, 300);
+        $this->log('connection to '.$state['url'].' lost: '.$error);
         $this->scheduleReconnect($key);
     }
 
@@ -420,13 +436,8 @@ class Listener
         }
         $state = &$this->connections[$key];
         $state['backoff'] = $state['backoff'] ? min(self::MAX_BACKOFF, $state['backoff'] * 2) : self::MIN_BACKOFF;
+        $state['retry_at'] = time() + $state['backoff'];
         $this->log('reconnecting to '.$state['url'].' in '.$state['backoff'].'s');
-        $state['timer'] = $this->loop->addTimer($state['backoff'], function () use ($key) {
-            if (isset($this->connections[$key])) {
-                $this->connections[$key]['timer'] = null;
-                $this->connect($key);
-            }
-        });
         $this->publishStatus();
     }
 
@@ -437,12 +448,9 @@ class Listener
         }
         $state = $this->connections[$key];
         unset($this->connections[$key]);
-        if ($state['timer']) {
-            $this->loop->cancelTimer($state['timer']);
-        }
-        if ($state['conn']) {
+        if ($state['client']) {
             try {
-                $state['conn']->close();
+                $state['client']->close();
             } catch (\Throwable $e) {
                 // Ignore.
             }
@@ -476,16 +484,57 @@ class Listener
         }
 
         foreach ($this->connections as $state) {
-            if ($state['conn']) {
+            if ($state['client'] && $state['client']->isOpen()) {
                 try {
-                    $state['conn']->send(new Frame('', true, Frame::OP_PING));
+                    $state['client']->ping();
                 } catch (\Throwable $e) {
-                    // The close handler takes care of it.
+                    // service() picks up the failure.
                 }
             }
         }
 
         $this->publishStatus();
+    }
+
+    /**
+     * Heartbeat for the settings page: process info and the state of every connection.
+     */
+    protected function publishStatus($stopReason = null)
+    {
+        $connections = [];
+        foreach ($this->connections as $state) {
+            if ($state['client']) {
+                $connectionState = $state['client']->isOpen() ? 'connected' : 'connecting';
+            } else {
+                $connectionState = $state['retry_at'] !== null ? 'reconnecting' : 'connecting';
+            }
+            $connections[] = [
+                'mailbox_id' => $state['cfg']->mailbox_id,
+                'url' => $state['url'],
+                'state' => $connectionState,
+                'since' => $state['since'],
+                'caught_up' => $state['caught_up'],
+                'authed' => $state['authed'],
+                'events' => $state['events'],
+                'last_event_at' => $state['last_event_at'],
+                'error' => $state['error'],
+                'retry_in' => $connectionState === 'reconnecting' ? max(0, $state['retry_at'] - time()) : null,
+            ];
+        }
+        try {
+            ListenerStatus::write([
+                'pid' => getmypid(),
+                'host' => gethostname(),
+                'started_at' => $this->startedAt,
+                'lifetime' => $this->lifetime,
+                'ends_at' => $this->startedAt + $this->lifetime,
+                'stopped_at' => $stopReason ? time() : null,
+                'stop_reason' => $stopReason,
+                'connections' => $connections,
+            ]);
+        } catch (\Throwable $e) {
+            $this->log('could not write status: '.$e->getMessage());
+        }
     }
 
     /**

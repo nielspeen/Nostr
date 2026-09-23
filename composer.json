@@ -9,9 +9,10 @@
         }
     ],
     "require": {
-        "php": ">=8.2",
-        "swentel/nostr-php": "^1.9.4",
-        "ratchet/pawl": "^0.4.3"
+        "php": ">=8.1",
+        "ext-openssl": "*",
+        "ext-json": "*",
+        "simplito/elliptic-php": "^1.0"
     },
     "autoload": {
         "psr-4": {

@@ -7,7 +7,8 @@ use Modules\Nostr\Crypto\Bech32;
 use Modules\Nostr\Services\EventBuilder;
 use Modules\Nostr\Services\GiftWrap;
 use Modules\Nostr\Services\Keys;
-use swentel\nostr\Encryption\Nip44;
+use Modules\Nostr\Crypto\ChaCha20;
+use Modules\Nostr\Crypto\Nip44;
 
 $fail = 0;
 function check($name, $cond) { global $fail; if ($cond) { echo "ok   $name\n"; } else { echo "FAIL $name\n"; $fail++; } }
@@ -39,7 +40,7 @@ check('serialization keeps slashes and unicode', strpos(EventBuilder::serialize(
 $v = json_decode(file_get_contents(__DIR__.'/vectors/nip44.json'), true)['v2']['valid'];
 $ok = true;
 foreach ($v['get_conversation_key'] as $case) {
-    if (bin2hex(Nip44::getConversationKey($case['sec1'], $case['pub2'])) !== $case['conversation_key']) { $ok = false; echo "  conv key mismatch for {$case['pub2']}\n"; }
+    if (bin2hex(Nip44::conversationKey($case['sec1'], $case['pub2'])) !== $case['conversation_key']) { $ok = false; echo "  conv key mismatch for {$case['pub2']}\n"; }
 }
 check('nip44 conversation keys ('.count($v['get_conversation_key']).')', $ok);
 $ok = true;
@@ -49,6 +50,42 @@ foreach ($v['encrypt_decrypt'] as $case) {
     if (Nip44::decrypt($case['payload'], $key) !== $case['plaintext']) { $ok = false; echo "  decrypt mismatch\n"; }
 }
 check('nip44 encrypt/decrypt ('.count($v['encrypt_decrypt']).')', $ok);
+
+// ChaCha20: OpenSSL and the pure PHP fallback must agree (RFC 8439 keystream).
+if (ChaCha20::opensslAvailable()) {
+    $k = random_bytes(32); $n = random_bytes(12); $d = random_bytes(1000);
+    check('chacha20 pure PHP matches OpenSSL', ChaCha20::cryptPure($k, $n, $d) === ChaCha20::crypt($k, $n, $d) && ChaCha20::cryptPure($k, $n, $d, 7) === ChaCha20::crypt($k, $n, $d, 7));
+}
+check('chacha20 RFC 8439 vector', bin2hex(substr(ChaCha20::cryptPure(hex2bin('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'), hex2bin('000000000000004a00000000'), 'Ladies and Gentlemen of the class of \'99: If I could offer you only one tip for the future, sunscreen would be it.', 1), 0, 16)) === '6e2e359a2568f98041ba0728dd0d6981');
+ChaCha20::forcePure(true);
+$ok = true;
+foreach ($v['encrypt_decrypt'] as $case) {
+    $key = hex2bin($case['conversation_key']);
+    if (Nip44::encrypt($case['plaintext'], $key, hex2bin($case['nonce'])) !== $case['payload'] || Nip44::decrypt($case['payload'], $key) !== $case['plaintext']) { $ok = false; }
+}
+ChaCha20::forcePure(false);
+check('nip44 vectors with pure PHP chacha20', $ok);
+$ok = true;
+foreach ($v['calc_padded_len'] as $case) { if (Nip44::calcPaddedLen($case[0]) !== $case[1]) { $ok = false; echo "  padded len mismatch for {$case[0]}\n"; } }
+check('nip44 padded lengths ('.count($v['calc_padded_len']).')', $ok);
+$ok = true;
+foreach ($v['get_message_keys']['keys'] as $case) {
+    [$ck, $cn, $hk] = Nip44::messageKeys(hex2bin($v['get_message_keys']['conversation_key']), hex2bin($case['nonce']));
+    if (bin2hex($ck) !== $case['chacha_key'] || bin2hex($cn) !== $case['chacha_nonce'] || bin2hex($hk) !== $case['hmac_key']) { $ok = false; }
+}
+check('nip44 message keys ('.count($v['get_message_keys']['keys']).')', $ok);
+$ok = true;
+foreach ($v['encrypt_decrypt_long_msg'] as $case) {
+    $key = hex2bin($case['conversation_key']); $plain = str_repeat($case['pattern'], $case['repeat']);
+    if (hash('sha256', $plain) !== $case['plaintext_sha256']) { $ok = false; continue; }
+    $payload = Nip44::encrypt($plain, $key, hex2bin($case['nonce']));
+    if (hash('sha256', $payload) !== $case['payload_sha256'] || Nip44::decrypt($payload, $key) !== $plain) { $ok = false; }
+}
+check('nip44 long messages ('.count($v['encrypt_decrypt_long_msg']).')', $ok);
+$inv = json_decode(file_get_contents(__DIR__.'/vectors/nip44.json'), true)['v2']['invalid'];
+$ok = true;
+foreach ($inv['decrypt'] ?? [] as $case) { try { Nip44::decrypt($case['payload'], hex2bin($case['conversation_key'])); $ok = false; echo "  accepted invalid payload: {$case['note']}\n"; } catch (\Throwable $e) {} }
+check('nip44 invalid payloads rejected ('.count($inv['decrypt'] ?? []).')', $ok);
 
 // Gift wrap round trip.
 $alicePriv = Keys::generatePrivateKey(); $alicePub = Keys::pubkeyFromPrivate($alicePriv);
@@ -65,10 +102,6 @@ check('unwrap by wrong key fails', $threw);
 $bad = $wrap; $bad['content'] = substr($bad['content'], 0, -8).'AAAAAAAA';
 $threw = false; try { GiftWrap::unwrap($bad, $bobPriv, $bobPub); } catch (\Throwable $e) { $threw = true; }
 check('tampered wrap fails', $threw);
-
-// Round trip through the nostr-php reference implementation for interoperability.
-$ref = \swentel\nostr\Nip17\DirectMessage::decryptDirectMessage(json_decode(json_encode($wrap)), $bobPriv, true);
-check('nostr-php can decrypt our wrap', is_array($ref) && $ref['content'] === 'Hi Bob, need help with my VPN 🙂');
 
 echo $fail ? "$fail FAILED\n" : "ALL OK\n";
 exit($fail ? 1 : 0);

@@ -135,6 +135,24 @@ class Schnorr
     }
 
     /**
+     * x coordinate (32 raw bytes) of priv * P where P is the x-only public key: NIP-44's shared secret.
+     */
+    public static function ecdhX($privHex, $pubHex)
+    {
+        $ec = self::ec();
+        $d = new BN(self::hex($privHex), 16);
+        if ($d->isZero() || $d->cmp($ec->n) >= 0) {
+            throw new \InvalidArgumentException('Invalid private key');
+        }
+        $P = self::liftX(self::hex($pubHex));
+        if (!$P) {
+            throw new \InvalidArgumentException('Invalid public key');
+        }
+
+        return hex2bin(self::padHex($P->mul($d)->getX()->toString(16)));
+    }
+
+    /**
      * Point with the given x coordinate and even y, or null if x is not on the curve.
      */
     public static function liftX($xHex)

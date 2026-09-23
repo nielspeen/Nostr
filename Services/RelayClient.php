@@ -2,10 +2,7 @@
 
 namespace Modules\Nostr\Services;
 
-use WebSocket\Client;
-use WebSocket\Message\Text;
-use WebSocket\Middleware\CloseHandler;
-use WebSocket\Middleware\PingResponder;
+use Modules\Nostr\Services\Websocket\Client;
 
 /**
  * Synchronous relay client used from web requests and queue jobs:
@@ -103,11 +100,10 @@ class RelayClient
 
         try {
             $client = $this->connect($url, $timeout);
-            $client->text($payload);
+            $client->send($payload);
 
             while (($remaining = $deadline - microtime(true)) > 0) {
-                $client->setTimeout(max(0.2, $remaining));
-                $data = $this->receiveJson($client);
+                $data = $this->receiveJson($client, min(1, $remaining));
                 if ($data === null) {
                     continue;
                 }
@@ -123,7 +119,7 @@ class RelayClient
                     if (!$ok && !$authed && self::isAuthRequired($message)
                         && $challenge !== null && $this->sendAuth($client, $url, $challenge)) {
                         $authed = true;
-                        $client->text($payload);
+                        $client->send($payload);
                         continue;
                     }
 
@@ -154,11 +150,10 @@ class RelayClient
 
         try {
             $client = $this->connect($url, $timeout);
-            $client->text($payload);
+            $client->send($payload);
 
             while (($remaining = $deadline - microtime(true)) > 0) {
-                $client->setTimeout(max(0.2, $remaining));
-                $data = $this->receiveJson($client);
+                $data = $this->receiveJson($client, min(1, $remaining));
                 if ($data === null) {
                     continue;
                 }
@@ -178,7 +173,7 @@ class RelayClient
                     if (!$authed && self::isAuthRequired($message)
                         && $challenge !== null && $this->sendAuth($client, $url, $challenge)) {
                         $authed = true;
-                        $client->text($payload);
+                        $client->send($payload);
                         continue;
                     }
                     $this->log('subscription closed by '.$url.': '.$message);
@@ -189,7 +184,7 @@ class RelayClient
             }
 
             try {
-                $client->text(self::encode(['CLOSE', $subId]));
+                $client->send(self::encode(['CLOSE', $subId]));
             } catch (\Throwable $e) {
                 // Ignore.
             }
@@ -212,12 +207,11 @@ class RelayClient
             if (!$event) {
                 return false;
             }
-            $client->text(self::encode(['AUTH', $event]));
+            $client->send(self::encode(['AUTH', $event]));
             // Wait for the OK of the auth event (or give up quietly).
             $until = microtime(true) + 5;
-            while (microtime(true) < $until) {
-                $client->setTimeout(max(0.2, $until - microtime(true)));
-                $data = $this->receiveJson($client);
+            while (($remaining = $until - microtime(true)) > 0) {
+                $data = $this->receiveJson($client, min(1, $remaining));
                 if ($data && ($data[0] ?? '') === 'OK' && ($data[1] ?? '') === $event['id']) {
                     return (bool) ($data[2] ?? false);
                 }
@@ -232,25 +226,24 @@ class RelayClient
     protected function connect($url, $timeout)
     {
         $client = new Client($url);
-        $client->setTimeout(max(1, (int) ceil($timeout)));
-        $client->addMiddleware(new CloseHandler());
-        $client->addMiddleware(new PingResponder());
-        $client->connect();
+        if (!$client->open(min(Client::CONNECT_TIMEOUT, max(1, $timeout)))) {
+            throw new \RuntimeException($client->getError() ?: 'could not connect');
+        }
 
         return $client;
     }
 
     /**
-     * Next text message decoded as JSON, or null for non-text frames.
-     * Throws on timeout or closed connection.
+     * Next message decoded as JSON, or null when nothing usable arrived within $seconds.
+     * Throws when the connection is closed.
      */
-    protected function receiveJson(Client $client)
+    protected function receiveJson(Client $client, $seconds)
     {
-        $message = $client->receive();
-        if (!$message instanceof Text) {
+        $message = $client->receive($seconds);
+        if ($message === null) {
             return null;
         }
-        $data = json_decode($message->getContent(), true);
+        $data = json_decode($message, true);
 
         return is_array($data) ? $data : null;
     }
@@ -259,9 +252,7 @@ class RelayClient
     {
         if ($client) {
             try {
-                if ($client->isConnected()) {
-                    $client->disconnect();
-                }
+                $client->close();
             } catch (\Throwable $e) {
                 // Ignore.
             }

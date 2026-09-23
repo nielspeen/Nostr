@@ -24,9 +24,9 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
 
 ## Requirements
 
-- FreeScout 1.8.191 or newer, PHP 8.2 or newer.
-- The `gmp` PHP extension is strongly recommended (`apt install php8.x-gmp`). Without it the
-  module falls back to `bcmath`, which is slower but works.
+- FreeScout 1.8.191 or newer, PHP 8.1 or newer with the `openssl` extension.
+- The `gmp` PHP extension is recommended (`apt install php8.x-gmp`); without it the module uses
+  `bcmath`, which is slower but works.
 - The FreeScout cron job (`php artisan schedule:run` every minute). The relay listener is started
   from it, just like the core queue worker.
 
@@ -130,14 +130,15 @@ migrations automatically. Only when you replace the files by hand (for example `
 - `php Modules/Nostr/Tests/integration_daemon.php` starts a real `nostr:listen` process against the
   development database (it cleans up after itself; never run it on production).
 
-Signing and verification are implemented in `Crypto/Schnorr.php` on top of `simplito/elliptic-php`
-so the module runs with either `gmp` or `bcmath`. NIP-44 payload encryption comes from
-`swentel/nostr-php`; the listener uses `ratchet/pawl` (ReactPHP).
+Everything protocol related is implemented in the module so that it shares no library with other
+FreeScout modules (several ship their own, mutually incompatible copies of ReactPHP and friends):
 
-The vendored packages are registered *after* FreeScout's own autoloader (see the service provider),
-so packages FreeScout already ships (psr/log, guzzlehttp/psr7...) keep their core versions. Pawl's
-handshake is done by `Services/Websocket/Negotiator.php` because the stock one is not compatible
-with the psr7 version FreeScout ships.
+- `Crypto/Schnorr.php`: BIP-340 signatures on `simplito/elliptic-php`, the only vendored package
+  (works with `gmp` or `bcmath`).
+- `Crypto/Nip44.php` and `Crypto/ChaCha20.php`: NIP-44 v2 payload encryption (OpenSSL, pure PHP fallback).
+- `Crypto/Bech32.php`: NIP-19 npub / nsec / nprofile.
+- `Services/Websocket/Client.php`: a small RFC 6455 client on plain PHP streams with non-blocking
+  connect, used by the synchronous relay client and multiplexed by the listener with `stream_select()`.
 
 ## License
 

@@ -4,208 +4,32 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInit2394300212caf17f0da118b67c8d2c9b
+class ComposerStaticInit656b3ec2d7388ef3d23eda3b494b9bc8
 {
-    public static $files = array (
-        'ad155f8f1cf0d418fe49e248db8c661b' => __DIR__ . '/..' . '/react/promise/src/functions_include.php',
-        'a4a119a56e50fbb293281d9a48007e0e' => __DIR__ . '/..' . '/symfony/polyfill-php80/bootstrap.php',
-        '3109cb1a231dcd04bee1f9f620d46975' => __DIR__ . '/..' . '/paragonie/sodium_compat/autoload.php',
-        '7b11c4dc42b3b3023073cb14e519683c' => __DIR__ . '/..' . '/ralouphie/getallheaders/src/getallheaders.php',
-        '6e3fae29631ef280660b3cdad06f25a8' => __DIR__ . '/..' . '/symfony/deprecation-contracts/function.php',
-        'a626201e4406003b96eee958a069f504' => __DIR__ . '/..' . '/bitwasp/bech32/src/bech32.php',
-        'c835a24c89dbf5e77bc2fcfed1cdda56' => __DIR__ . '/..' . '/dsbaars/chacha20/lib/functions.php',
-        '3be16222a6efa6dd226a219eaaff823b' => __DIR__ . '/..' . '/ratchet/pawl/src/functions_include.php',
-    );
-
     public static $prefixLengthsPsr4 = array (
-        's' =>
-        array (
-            'swentel\\nostr\\' => 14,
-        ),
-        'W' =>
-        array (
-            'WebSocket\\' => 10,
-        ),
-        'S' =>
-        array (
-            'Symfony\\Polyfill\\Php80\\' => 23,
-        ),
-        'R' =>
-        array (
-            'React\\Stream\\' => 13,
-            'React\\Socket\\' => 13,
-            'React\\Promise\\' => 14,
-            'React\\EventLoop\\' => 16,
-            'React\\Dns\\' => 10,
-            'React\\Cache\\' => 12,
-            'Ratchet\\RFC6455\\' => 16,
-            'Ratchet\\Client\\' => 15,
-        ),
-        'P' =>
-        array (
-            'Psr\\Log\\' => 8,
-            'Psr\\Http\\Message\\' => 17,
-            'Phrity\\Util\\Transformer\\' => 24,
-            'Phrity\\Util\\Interpolator\\' => 25,
-            'Phrity\\Util\\' => 12,
-            'Phrity\\Net\\' => 11,
-            'Phrity\\Http\\' => 12,
-            'Phrity\\Comparison\\' => 18,
-            'ParagonIE\\Sodium\\' => 17,
-        ),
-        'N' =>
-        array (
-            'Nyholm\\Psr7\\' => 12,
-        ),
         'M' =>
         array (
             'Modules\\Nostr\\' => 14,
-            'Mdanter\\Ecc\\' => 12,
-        ),
-        'G' =>
-        array (
-            'GuzzleHttp\\Psr7\\' => 16,
-        ),
-        'F' =>
-        array (
-            'FG\\' => 3,
         ),
         'E' =>
         array (
-            'Evenement\\' => 10,
             'Elliptic\\' => 9,
-        ),
-        'C' =>
-        array (
-            'ChaCha20\\' => 9,
         ),
         'B' =>
         array (
-            'BitWasp\\Bech32\\' => 15,
             'BN\\' => 3,
             'BI\\' => 3,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
-        'swentel\\nostr\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/swentel/nostr-php/src',
-        ),
-        'WebSocket\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/phrity/websocket/src',
-        ),
-        'Symfony\\Polyfill\\Php80\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/symfony/polyfill-php80',
-        ),
-        'React\\Stream\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/react/stream/src',
-        ),
-        'React\\Socket\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/react/socket/src',
-        ),
-        'React\\Promise\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/react/promise/src',
-        ),
-        'React\\EventLoop\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/react/event-loop/src',
-        ),
-        'React\\Dns\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/react/dns/src',
-        ),
-        'React\\Cache\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/react/cache/src',
-        ),
-        'Ratchet\\RFC6455\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/ratchet/rfc6455/src',
-        ),
-        'Ratchet\\Client\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/ratchet/pawl/src',
-        ),
-        'Psr\\Log\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/psr/log/src',
-        ),
-        'Psr\\Http\\Message\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/psr/http-factory/src',
-            1 => __DIR__ . '/..' . '/psr/http-message/src',
-        ),
-        'Phrity\\Util\\Transformer\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/phrity/util-transformer/src',
-        ),
-        'Phrity\\Util\\Interpolator\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/phrity/util-interpolator/src',
-        ),
-        'Phrity\\Util\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/phrity/util-errorhandler/src',
-            1 => __DIR__ . '/..' . '/phrity/util-accessor/src',
-        ),
-        'Phrity\\Net\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/phrity/net-uri/src',
-            1 => __DIR__ . '/..' . '/phrity/net-stream/src',
-        ),
-        'Phrity\\Http\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/phrity/http/src',
-        ),
-        'Phrity\\Comparison\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/phrity/comparison/src',
-        ),
-        'ParagonIE\\Sodium\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/paragonie/sodium_compat/namespaced',
-        ),
-        'Nyholm\\Psr7\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/nyholm/psr7/src',
-        ),
         'Modules\\Nostr\\' =>
         array (
             0 => __DIR__ . '/../..' . '/',
         ),
-        'Mdanter\\Ecc\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/paragonie/ecc/src',
-        ),
-        'GuzzleHttp\\Psr7\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/guzzlehttp/psr7/src',
-        ),
-        'FG\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/genkgo/php-asn1/lib',
-        ),
-        'Evenement\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/evenement/evenement/src',
-        ),
         'Elliptic\\' =>
         array (
             0 => __DIR__ . '/..' . '/simplito/elliptic-php/lib',
-        ),
-        'ChaCha20\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/dsbaars/chacha20/lib',
-        ),
-        'BitWasp\\Bech32\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/bitwasp/bech32/src',
         ),
         'BN\\' =>
         array (
@@ -218,20 +42,15 @@ class ComposerStaticInit2394300212caf17f0da118b67c8d2c9b
     );
 
     public static $classMap = array (
-        'Attribute' => __DIR__ . '/..' . '/symfony/polyfill-php80/Resources/stubs/Attribute.php',
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
-        'PhpToken' => __DIR__ . '/..' . '/symfony/polyfill-php80/Resources/stubs/PhpToken.php',
-        'Stringable' => __DIR__ . '/..' . '/symfony/polyfill-php80/Resources/stubs/Stringable.php',
-        'UnhandledMatchError' => __DIR__ . '/..' . '/symfony/polyfill-php80/Resources/stubs/UnhandledMatchError.php',
-        'ValueError' => __DIR__ . '/..' . '/symfony/polyfill-php80/Resources/stubs/ValueError.php',
     );
 
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInit2394300212caf17f0da118b67c8d2c9b::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInit2394300212caf17f0da118b67c8d2c9b::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInit2394300212caf17f0da118b67c8d2c9b::$classMap;
+            $loader->prefixLengthsPsr4 = ComposerStaticInit656b3ec2d7388ef3d23eda3b494b9bc8::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInit656b3ec2d7388ef3d23eda3b494b9bc8::$prefixDirsPsr4;
+            $loader->classMap = ComposerStaticInit656b3ec2d7388ef3d23eda3b494b9bc8::$classMap;
 
         }, null, ClassLoader::class);
     }
