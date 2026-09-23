@@ -115,7 +115,7 @@ class Listener
     {
         return [
             'kinds' => [GiftWrap::KIND_WRAP],
-            '#p' => [$cfg->pubkey],
+            '#p' => $cfg->getAllPubkeys(),
             'since' => time() - (int) config('nostr.lookback', 3 * 86400),
         ];
     }

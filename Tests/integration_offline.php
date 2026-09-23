@@ -30,6 +30,8 @@ function req($kernel, $method, $uri, $params = []) {
     $request = Request::create(config('app.url') . $uri, $method, $params, [], [], ['HTTP_USER_AGENT' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36']);
     $request->setLaravelSession(app('session.store'));
     $response = $kernel->handle($request);
+    // Like the real front controller: lets the session age its flash data.
+    $kernel->terminate($request, $response);
     return $response;
 }
 
@@ -56,11 +58,11 @@ try {
     $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", [
         '_token' => csrf_token(), 'action' => 'save', 'enabled' => '1',
         'inbox_relays' => "ws://127.0.0.1:1\nrelay.example.org/", 'announce_relays' => 'ws://127.0.0.1:1',
-        'profile_name' => 'Test Support', 'profile_about' => 'Testing', 'profile_picture' => '', 'nip05_name' => 'Support',
+        'profile_name' => 'Test Support', 'profile_about' => 'Testing', 'profile_picture' => '', 'nip05' => 'Support@Example.COM',
         'auto_reply_enabled' => '1', 'auto_reply_text' => 'Thanks, we will get back to you.', 'reopen_days' => '30',
     ]);
     $cfg = NostrMailbox::forMailbox($mid, false);
-    check('settings saved', $r->getStatusCode() === 302 && $cfg->enabled && $cfg->getInboxRelays() === ['ws://127.0.0.1:1', 'wss://relay.example.org'] && $cfg->nip05_name === 'support' && $cfg->auto_reply_enabled, json_encode($cfg->toArray()));
+    check('settings saved', $r->getStatusCode() === 302 && $cfg->enabled && $cfg->getInboxRelays() === ['ws://127.0.0.1:1', 'wss://relay.example.org'] && $cfg->nip05 === 'support@example.com' && $cfg->auto_reply_enabled, json_encode($cfg->toArray()));
     check('announce queued in background', \DB::table('jobs')->where('payload', 'like', '%nostr.announce%')->exists());
 
     // Validation: enabling without relays fails.
@@ -69,7 +71,38 @@ try {
 
     // Settings page shows the identity.
     $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
-    check('settings page shows npub', $r->getStatusCode() === 200 && strpos($r->getContent(), $cfg->getNpub()) !== false && strpos($r->getContent(), 'support@') !== false && strpos($r->getContent(), '@freescout.test') !== false, $r->getStatusCode().' '.substr(preg_replace('/\s+/', ' ', strip_tags($r->getContent())), 0, 300));
+    check('settings page shows npub', $r->getStatusCode() === 200 && strpos($r->getContent(), $cfg->getNpub()) !== false && strpos($r->getContent(), 'support@example.com') !== false && strpos($r->getContent(), 'Host this file at https://example.com/.well-known/nostr.json') !== false, $r->getStatusCode().' '.substr(preg_replace('/\s+/', ' ', strip_tags($r->getContent())), 0, 300));
+
+    // Key lifecycle: the second generate is refused, replacing needs password + phrase, old key is retired.
+    $firstPub = $cfg->pubkey;
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'generate']);
+    check('second generate refused', NostrMailbox::forMailbox($mid, false)->pubkey === $firstPub && session('flash_error_floating'));
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'replace', 'confirm' => 'REPLACE']);
+    check('replace without password refused', NostrMailbox::forMailbox($mid, false)->pubkey === $firstPub);
+    $admin->password = \Hash::make('correct horse'); $admin->save();
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'replace', 'password' => 'wrong', 'confirm' => 'REPLACE']);
+    check('replace with wrong password refused', NostrMailbox::forMailbox($mid, false)->pubkey === $firstPub);
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'replace', 'password' => 'correct horse', 'confirm' => 'replace please']);
+    check('replace with wrong phrase refused', NostrMailbox::forMailbox($mid, false)->pubkey === $firstPub);
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'reveal']);
+    check('reveal without password refused', !session('nostr_reveal_nsec'));
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'reveal', 'password' => 'correct horse']);
+    check('reveal with password shows nsec once', session('nostr_reveal_nsec') === $cfg->getNsec());
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('nsec rendered on the page after reveal', strpos($r->getContent(), $cfg->getNsec()) !== false);
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('nsec not rendered again', strpos($r->getContent(), $cfg->getNsec()) === false);
+    $firstPriv = $cfg->getPrivateKey();
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'replace', 'password' => 'correct horse', 'confirm' => ' replace ']);
+    $cfg = NostrMailbox::forMailbox($mid, false);
+    $retired = $cfg->getRetiredKeys();
+    check('replace with password and phrase works', $r->getStatusCode() === 302 && $cfg->pubkey !== $firstPub && Keys::pubkeyFromPrivate($cfg->getPrivateKey()) === $cfg->pubkey);
+    check('old key retired with its private key', count($retired) === 1 && $retired[0]->pubkey === $firstPub && $retired[0]->getPrivateKey() === $firstPriv && $retired[0]->retired_at);
+    check('listener subscribes for both keys', $cfg->getAllPubkeys() === [$cfg->pubkey, $firstPub] && $cfg->getPrivateKeyFor($firstPub) === $firstPriv);
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'replace', 'replace_mode' => 'import', 'nsec' => Keys::nsec($firstPriv), 'password' => 'correct horse', 'confirm' => 'REPLACE']);
+    check('re-importing a retired key refused', NostrMailbox::forMailbox($mid, false)->getRetiredKeys()->count() === 1 && session('flash_error_floating'));
+    $r = req($kernel, 'GET', "/mailbox/settings/$mid/nostr");
+    check('settings page lists the retired key', $r->getStatusCode() === 200 && strpos($r->getContent(), Keys::npub($firstPub)) !== false && strpos($r->getContent(), 'Type DELETE') !== false, $r->getStatusCode());
 
     // NIP-05.
     $r = req($kernel, 'GET', '/.well-known/nostr.json', ['name' => 'support']);
@@ -115,6 +148,26 @@ try {
     check('second key lands in same conversation', $thread3 && $thread3->conversation_id == $conv->id);
     check('core channel still points at first key', CustomerChannel::where('customer_id', $customer->id)->where('channel', 90)->count() === 1);
     check('latest incoming key is the second key', NostrEvent::lastIncoming($conv->id)->pubkey === $cust2Pub);
+
+    // A customer who still uses the retired key reaches the same conversation, answered from that key.
+    [$wrapOld] = GiftWrap::wrap(['kind' => 14, 'content' => 'Sent to your old key', 'tags' => [['p', $firstPub]]], $custPriv, $firstPub);
+    $threadOld = $handler->handleGiftWrap($cfg, $wrapOld, 'wss://relay.example.org');
+    $evOld = NostrEvent::where('wrap_id', $wrapOld['id'])->first();
+    check('message to retired key still received', $threadOld && $threadOld->conversation_id == $conv->id && $evOld && $evOld->mailbox_pubkey === $firstPub);
+    $senderTest = new OutgoingMessageSender();
+    $wrongKeyMsg = GiftWrap::wrap(['kind' => 14, 'content' => 'x', 'tags' => [['p', $firstPub]]], $custPriv, $firstPub)[0];
+    $r0 = $senderTest->sendText($cfg, $custPub, 'reply from old key', ['from_pubkey' => $firstPub, 'conversation_id' => $conv->id]);
+    check('reply goes out from the retired key', $r0['event']->mailbox_pubkey === $firstPub);
+    $r0 = $senderTest->sendText($cfg, $custPub, 'reply from unknown key', ['from_pubkey' => str_repeat('ab', 32), 'conversation_id' => $conv->id]);
+    check('unknown from key falls back to current key', $r0['event']->mailbox_pubkey === $cfg->pubkey);
+
+    // Deleting the retired key is gated too; afterwards messages to it are rejected.
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'delete_key', 'key_id' => $retired[0]->id, 'password' => 'correct horse', 'confirm' => 'nope']);
+    check('delete retired key without phrase refused', $cfg->getRetiredKeys()->count() === 1);
+    $r = req($kernel, 'POST', "/mailbox/settings/$mid/nostr", ['_token' => csrf_token(), 'action' => 'delete_key', 'key_id' => $retired[0]->id, 'password' => 'correct horse', 'confirm' => 'delete']);
+    check('delete retired key with password and phrase works', $cfg->getRetiredKeys()->count() === 0);
+    [$wrapGone] = GiftWrap::wrap(['kind' => 14, 'content' => 'x', 'tags' => [['p', $firstPub]]], $custPriv, $firstPub);
+    check('message to deleted key rejected', $handler->handleGiftWrap($cfg, $wrapGone, null) === null && NostrEvent::where('wrap_id', $wrapGone['id'])->value('error') === 'not addressed to mailbox');
 
     // Old conversation: new one after the reopen window.
     Conversation::where('id', $conv->id)->update(['last_reply_at' => now()->subDays(31)]);
@@ -182,9 +235,10 @@ try {
     $reply = $reply->fresh();
     check('unreachable relays -> send error on thread', $reply->send_status == \App\SendLog::STATUS_SEND_ERROR && strpos((string) $reply->send_status_data, 'relay') !== false, $reply->send_status.' '.$reply->send_status_data);
     $out = NostrEvent::where('thread_id', $reply->id)->where('direction', NostrEvent::DIRECTION_OUT)->first();
-    check('outgoing event recorded as failed with target relays', $out && $out->status == NostrEvent::STATUS_FAILED && isset($out->getRelays()['ws://127.0.0.1:1']) && isset($out->getRelays()['wss://relay.example.org']) && $out->pubkey === $cust2Pub, $out ? $out->relays : 'none');
+    check('outgoing event recorded as failed with target relays', $out && $out->status == NostrEvent::STATUS_FAILED && isset($out->getRelays()['ws://127.0.0.1:1']) && isset($out->getRelays()['wss://relay.example.org']), $out ? $out->relays : 'none');
     check('failure was fast', $elapsed < 20, round($elapsed, 1).'s');
-    check('reply targets the latest key (second key)', $out && $out->pubkey === $cust2Pub);
+    // The first key wrote last (to the retired mailbox key), so the reply goes there, from the retired key.
+    check('reply targets the key that wrote last; retired key deleted so current key is used', $out && $out->pubkey === $custPub && $out->mailbox_pubkey === $cfg->pubkey);
 
     // Auto reply through the background action with unreachable relays: no line item.
     $before = Thread::where('conversation_id', $thread4->conversation_id)->count();

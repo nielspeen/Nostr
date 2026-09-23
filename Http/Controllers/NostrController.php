@@ -8,6 +8,7 @@ use App\Mailbox;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Modules\Nostr\Entities\CustomerKey;
+use Modules\Nostr\Entities\MailboxKey;
 use Modules\Nostr\Entities\NostrEvent;
 use Modules\Nostr\Entities\NostrMailbox;
 use Modules\Nostr\Services\Announcer;
@@ -31,12 +32,21 @@ class NostrController extends Controller
             'failed' => NostrEvent::where('mailbox_id', $mailbox->id)->where('direction', NostrEvent::DIRECTION_OUT)->where('status', NostrEvent::STATUS_FAILED)->count(),
         ];
 
+        $nip05Json = '';
+        if ($cfg->pubkey && $cfg->getNip05Name()) {
+            $nip05Json = json_encode([
+                'names' => [$cfg->getNip05Name() => $cfg->pubkey],
+                'relays' => [$cfg->pubkey => $cfg->getInboxRelays()],
+            ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        }
+
         return view('nostr::mailbox_settings', [
             'mailbox' => $mailbox,
             'cfg' => $cfg,
             'stats' => $stats,
-            'nip05_host' => parse_url(config('app.url'), PHP_URL_HOST),
-            'nip05_root' => trim(parse_url(config('app.url'), PHP_URL_PATH) ?: '', '/') === '',
+            'retired_keys' => $cfg->exists ? $cfg->getRetiredKeys() : collect(),
+            'nip05_json' => $nip05Json,
+            'nip05_url' => $cfg->getNip05Domain() ? 'https://'.$cfg->getNip05Domain().'/.well-known/nostr.json' : '',
         ]);
     }
 
@@ -49,21 +59,85 @@ class NostrController extends Controller
         $action = $request->input('action', 'save');
 
         switch ($action) {
+            // First key only. Once a key exists it can only be replaced through the gated "replace" action.
             case 'generate':
-                $cfg->setPrivateKey(Keys::generatePrivateKey());
+            case 'import':
+                if ($cfg->pubkey) {
+                    \Session::flash('flash_error_floating', __('This mailbox already has a key. Use "Replace the key" below, which asks for your password.'));
+                    break;
+                }
+                if ($action === 'import') {
+                    $hex = Keys::toHex($request->input('nsec'), 'priv');
+                    if (!$hex) {
+                        \Session::flash('flash_error_floating', __('This is not a valid private key (nsec or hex).'));
+                        break;
+                    }
+                    if (MailboxKey::where('pubkey', Keys::pubkeyFromPrivate($hex))->exists() || NostrMailbox::byPubkey(Keys::pubkeyFromPrivate($hex))) {
+                        \Session::flash('flash_error_floating', __('This key is already used by a mailbox.'));
+                        break;
+                    }
+                } else {
+                    $hex = Keys::generatePrivateKey();
+                }
+                $cfg->setPrivateKey($hex);
                 $cfg->save();
-                \Session::flash('flash_success_floating', __('A new keypair was generated. The public key is :npub', ['npub' => $cfg->getNpub()]));
+                \Session::flash('flash_success_floating', __('The mailbox now has a keypair. Its public key is :npub. Back it up with "Show private key" before sharing it.', ['npub' => $cfg->getNpub()]));
                 break;
 
-            case 'import':
-                $hex = Keys::toHex($request->input('nsec'), 'priv');
-                if (!$hex) {
-                    \Session::flash('flash_error_floating', __('This is not a valid private key (nsec or hex).'));
-                } else {
-                    $cfg->setPrivateKey($hex);
-                    $cfg->save();
-                    \Session::flash('flash_success_floating', __('The key was imported. The public key is :npub', ['npub' => $cfg->getNpub()]));
+            case 'replace':
+                if (!$cfg->pubkey) {
+                    \Session::flash('flash_error_floating', __('There is no key to replace yet.'));
+                    break;
                 }
+                if (!$this->confirmDangerousAction($request, 'REPLACE')) {
+                    break;
+                }
+                if ($request->input('replace_mode') === 'import') {
+                    $hex = Keys::toHex($request->input('nsec'), 'priv');
+                    if (!$hex) {
+                        \Session::flash('flash_error_floating', __('This is not a valid private key (nsec or hex).'));
+                        break;
+                    }
+                    $newPubkey = Keys::pubkeyFromPrivate($hex);
+                    if ($newPubkey === $cfg->pubkey || MailboxKey::where('pubkey', $newPubkey)->exists() || NostrMailbox::byPubkey($newPubkey)) {
+                        \Session::flash('flash_error_floating', __('This key is already used by a mailbox.'));
+                        break;
+                    }
+                } else {
+                    $hex = Keys::generatePrivateKey();
+                }
+                $old = $cfg->getNpub();
+                $cfg->replaceKey($hex);
+                $cfg->save();
+                if ($cfg->enabled && $cfg->getAllRelays()) {
+                    \Helper::backgroundAction('nostr.announce', [$cfg->id]);
+                }
+                \Session::flash('flash_success_floating', __('The key was replaced. The new public key is :npub. The previous key (:old) was retired: it still receives messages and its conversations are still answered from it, but it is no longer announced.', ['npub' => $cfg->getNpub(), 'old' => Keys::shortNpub(Keys::toHex($old))]));
+                break;
+
+            case 'reveal':
+                if (!$cfg->pubkey) {
+                    break;
+                }
+                if (!$this->confirmDangerousAction($request, null)) {
+                    break;
+                }
+                // Shown once on the next page load, never stored in the session longer than that.
+                \Session::flash('nostr_reveal_nsec', $cfg->getNsec());
+                break;
+
+            case 'delete_key':
+                if (!$this->confirmDangerousAction($request, 'DELETE')) {
+                    break;
+                }
+                $key = MailboxKey::where('mailbox_id', $mailbox->id)->where('id', (int) $request->input('key_id'))->first();
+                if (!$key) {
+                    \Session::flash('flash_error_floating', __('Retired key not found.'));
+                    break;
+                }
+                $npub = $key->getShortNpub();
+                $key->delete();
+                \Session::flash('flash_success_floating', __('The retired key :npub was deleted. Messages sent to it can no longer be read.', ['npub' => $npub]));
                 break;
 
             case 'announce':
@@ -96,6 +170,28 @@ class NostrController extends Controller
         return redirect()->route('mailboxes.nostr', ['id' => $id]);
     }
 
+    /**
+     * Destructive key operations need the admin's password and, when given, a typed phrase.
+     */
+    protected function confirmDangerousAction(Request $request, $phrase)
+    {
+        $user = auth()->user();
+        $password = (string) $request->input('password', '');
+
+        if (!$user || $password === '' || !\Hash::check($password, $user->password)) {
+            \Session::flash('flash_error_floating', __('Wrong password. Nothing was changed.'));
+
+            return false;
+        }
+        if ($phrase !== null && strtoupper(trim((string) $request->input('confirm', ''))) !== $phrase) {
+            \Session::flash('flash_error_floating', __('Type :phrase to confirm. Nothing was changed.', ['phrase' => $phrase]));
+
+            return false;
+        }
+
+        return true;
+    }
+
     protected function saveSettings(Mailbox $mailbox, NostrMailbox $cfg, Request $request)
     {
         $input = [
@@ -105,7 +201,7 @@ class NostrController extends Controller
             'profile_name' => trim((string) $request->input('profile_name', '')),
             'profile_about' => trim((string) $request->input('profile_about', '')),
             'profile_picture' => trim((string) $request->input('profile_picture', '')),
-            'nip05_name' => strtolower(trim((string) $request->input('nip05_name', ''))),
+            'nip05' => strtolower(trim((string) $request->input('nip05', ''))),
             'auto_reply_enabled' => (bool) $request->input('auto_reply_enabled'),
             'auto_reply_text' => trim((string) $request->input('auto_reply_text', '')),
             'reopen_days' => (int) $request->input('reopen_days', 30),
@@ -118,7 +214,7 @@ class NostrController extends Controller
             'announce_relays.*' => ['regex:#^wss?://[^\s/]+#i'],
             'profile_name' => 'nullable|string|max:255',
             'profile_picture' => 'nullable|url|max:1024',
-            'nip05_name' => ['nullable', 'regex:/^[a-z0-9._-]+$/', 'max:64'],
+            'nip05' => ['nullable', 'regex:/^[a-z0-9._-]+@([a-z0-9-]+\.)+[a-z]{2,}$/', 'max:255'],
             'reopen_days' => 'required|integer|min:1|max:3650',
         ]);
         $validator->after(function ($validator) use ($input, $cfg) {
@@ -139,7 +235,7 @@ class NostrController extends Controller
                 ->withInput();
         }
 
-        $announceBefore = $cfg->exists ? md5(json_encode([$cfg->inbox_relays, $cfg->profile_name, $cfg->profile_about, $cfg->profile_picture, $cfg->nip05_name])) : '';
+        $announceBefore = $cfg->exists ? md5(json_encode([$cfg->inbox_relays, $cfg->profile_name, $cfg->profile_about, $cfg->profile_picture, $cfg->nip05])) : '';
 
         $cfg->enabled = $input['enabled'];
         $cfg->setInboxRelays($input['inbox_relays']);
@@ -147,7 +243,7 @@ class NostrController extends Controller
         $cfg->profile_name = $input['profile_name'] ?: null;
         $cfg->profile_about = $input['profile_about'] ?: null;
         $cfg->profile_picture = $input['profile_picture'] ?: null;
-        $cfg->nip05_name = $input['nip05_name'] ?: null;
+        $cfg->nip05 = $input['nip05'] ?: null;
         $cfg->auto_reply_enabled = $input['auto_reply_enabled'];
         $cfg->auto_reply_text = $input['auto_reply_text'] ?: null;
         $cfg->reopen_days = $input['reopen_days'];
@@ -156,7 +252,7 @@ class NostrController extends Controller
         \Session::flash('flash_success_floating', __('Settings updated'));
 
         // Public metadata changed: republish in the background.
-        $announceAfter = md5(json_encode([$cfg->inbox_relays, $cfg->profile_name, $cfg->profile_about, $cfg->profile_picture, $cfg->nip05_name]));
+        $announceAfter = md5(json_encode([$cfg->inbox_relays, $cfg->profile_name, $cfg->profile_about, $cfg->profile_picture, $cfg->nip05]));
         if ($cfg->enabled && $cfg->pubkey && $cfg->getAllRelays() && ($announceBefore !== $announceAfter || !$cfg->last_announced_at)) {
             \Helper::backgroundAction('nostr.announce', [$cfg->id]);
         }
@@ -232,14 +328,15 @@ class NostrController extends Controller
 
         $rows = NostrMailbox::where('enabled', true)
             ->whereNotNull('pubkey')
-            ->whereNotNull('nip05_name')
+            ->whereNotNull('nip05')
             ->get();
 
         foreach ($rows as $cfg) {
-            if ($name !== '' && strtolower($cfg->nip05_name) !== $name) {
+            $localPart = strtolower($cfg->getNip05Name());
+            if ($localPart === '' || ($name !== '' && $localPart !== $name)) {
                 continue;
             }
-            $names[$cfg->nip05_name] = $cfg->pubkey;
+            $names[$localPart] = $cfg->pubkey;
             if ($cfg->getInboxRelays()) {
                 $relays[$cfg->pubkey] = $cfg->getInboxRelays();
             }

@@ -84,6 +84,8 @@ class OutgoingMessageSender
             'subject' => $conversation->subject,
             'reply_to' => ($last && $last->rumor_id) ? [$last->rumor_id, $last->relay] : null,
             'extra_relays' => ($last && $last->relay) ? [$last->relay] : [],
+            // Answer from the key the customer wrote to, even if it has been retired since.
+            'from_pubkey' => $last->mailbox_pubkey ?? null,
             'conversation_id' => $conversation->id,
             'thread_id' => $thread->id,
         ]);
@@ -105,8 +107,14 @@ class OutgoingMessageSender
      */
     public function sendText(NostrMailbox $cfg, $pubkey, $text, array $options = [])
     {
-        $priv = $cfg->getPrivateKey();
         $pubkey = strtolower($pubkey);
+
+        $fromPubkey = strtolower((string) ($options['from_pubkey'] ?? ''));
+        $priv = $fromPubkey !== '' ? $cfg->getPrivateKeyFor($fromPubkey) : null;
+        if (!$priv) {
+            $fromPubkey = $cfg->pubkey;
+            $priv = $cfg->getPrivateKey();
+        }
 
         $tags = [['p', $pubkey]];
         if (!empty($options['subject'])) {
@@ -130,6 +138,7 @@ class OutgoingMessageSender
 
         $event = new NostrEvent();
         $event->mailbox_id = $cfg->mailbox_id;
+        $event->mailbox_pubkey = $fromPubkey;
         $event->direction = NostrEvent::DIRECTION_OUT;
         $event->wrap_id = $wrap['id'];
         $event->rumor_id = $rumor['id'];
@@ -165,6 +174,7 @@ class OutgoingMessageSender
             'subject' => $conversation->subject,
             'reply_to' => ($last && $last->rumor_id) ? [$last->rumor_id, $last->relay] : null,
             'extra_relays' => ($last && $last->relay) ? [$last->relay] : [],
+            'from_pubkey' => $last->mailbox_pubkey ?? null,
             'conversation_id' => $conversation->id,
         ]);
 

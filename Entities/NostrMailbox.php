@@ -14,11 +14,11 @@ class NostrMailbox extends Model
 
     protected $fillable = [
         'mailbox_id', 'enabled', 'inbox_relays', 'announce_relays',
-        'profile_name', 'profile_about', 'profile_picture', 'nip05_name',
+        'profile_name', 'profile_about', 'profile_picture', 'nip05',
         'auto_reply_enabled', 'auto_reply_text', 'reopen_days',
     ];
 
-    protected $dates = ['last_announced_at', 'last_event_at'];
+    protected $dates = ['last_announced_at', 'last_event_at', 'key_created_at'];
 
     public function mailbox()
     {
@@ -77,6 +77,65 @@ class NostrMailbox extends Model
         $hex = strtolower(trim($hex));
         $this->private_key = $hex ? \Helper::encrypt($hex) : null;
         $this->pubkey = $hex ? Keys::pubkeyFromPrivate($hex) : null;
+        $this->key_created_at = $hex ? now() : null;
+    }
+
+    /**
+     * Replace the current key. The old key is retired, never deleted: it keeps
+     * receiving messages and its conversations are still answered from it.
+     */
+    public function replaceKey($newPrivHex)
+    {
+        if ($this->pubkey && $this->private_key) {
+            $retired = new MailboxKey();
+            $retired->mailbox_id = $this->mailbox_id;
+            $retired->pubkey = $this->pubkey;
+            $retired->private_key = $this->private_key;
+            $retired->key_created_at = $this->key_created_at;
+            $retired->retired_at = now();
+            $retired->save();
+        }
+        $this->setPrivateKey($newPrivHex);
+    }
+
+    /**
+     * Retired keys, newest first.
+     */
+    public function getRetiredKeys()
+    {
+        return MailboxKey::where('mailbox_id', $this->mailbox_id)->orderBy('retired_at', 'desc')->get();
+    }
+
+    /**
+     * Current and retired public keys: everything the listener subscribes for.
+     */
+    public function getAllPubkeys()
+    {
+        $pubkeys = $this->pubkey ? [$this->pubkey] : [];
+        foreach (MailboxKey::where('mailbox_id', $this->mailbox_id)->pluck('pubkey') as $pubkey) {
+            $pubkeys[] = $pubkey;
+        }
+
+        return array_values(array_unique($pubkeys));
+    }
+
+    public function hasPubkey($pubkey)
+    {
+        return in_array(strtolower((string) $pubkey), $this->getAllPubkeys());
+    }
+
+    /**
+     * Private key for one of the mailbox's public keys (current or retired), or null.
+     */
+    public function getPrivateKeyFor($pubkey)
+    {
+        $pubkey = strtolower((string) $pubkey);
+        if ($pubkey !== '' && $pubkey === $this->pubkey) {
+            return $this->getPrivateKey() ?: null;
+        }
+        $retired = MailboxKey::where('mailbox_id', $this->mailbox_id)->where('pubkey', $pubkey)->first();
+
+        return $retired ? ($retired->getPrivateKey() ?: null) : null;
     }
 
     public function getNpub()
@@ -121,12 +180,30 @@ class NostrMailbox extends Model
 
     public function getNip05()
     {
-        if (!$this->nip05_name) {
-            return '';
-        }
-        $host = parse_url(config('app.url'), PHP_URL_HOST);
+        return (string) $this->nip05;
+    }
 
-        return $this->nip05_name.'@'.$host;
+    public function getNip05Name()
+    {
+        return $this->nip05 ? explode('@', $this->nip05)[0] : '';
+    }
+
+    public function getNip05Domain()
+    {
+        return $this->nip05 && strpos($this->nip05, '@') !== false ? explode('@', $this->nip05, 2)[1] : '';
+    }
+
+    /**
+     * True when this FreeScout installation itself answers on the address's domain,
+     * so /.well-known/nostr.json is served without further setup.
+     */
+    public function nip05ServedHere()
+    {
+        $domain = strtolower($this->getNip05Domain());
+        $host = strtolower((string) parse_url(config('app.url'), PHP_URL_HOST));
+        $path = trim((string) parse_url(config('app.url'), PHP_URL_PATH), '/');
+
+        return $domain !== '' && $domain === $host && $path === '';
     }
 
     /**
@@ -134,7 +211,7 @@ class NostrMailbox extends Model
      */
     public function getListenerFingerprint()
     {
-        return md5(implode('|', [$this->id, $this->enabled, $this->pubkey, $this->inbox_relays]));
+        return md5(implode('|', [$this->id, $this->enabled, implode(',', $this->getAllPubkeys()), $this->inbox_relays]));
     }
 
     public static function decodeRelays($json)

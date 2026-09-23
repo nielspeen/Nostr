@@ -40,11 +40,26 @@ class IncomingMessageHandler
             return null;
         }
 
+        // Which of the mailbox's keys (current or retired) is this for?
+        $targets = array_values(array_intersect(array_map('strtolower', EventBuilder::tagValues($wrap, 'p')), $cfg->getAllPubkeys()));
+        if (!$targets) {
+            $this->record($cfg, $wrapId, null, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'not addressed to mailbox');
+
+            return null;
+        }
+        $mailboxPubkey = $targets[0];
+        $priv = $cfg->getPrivateKeyFor($mailboxPubkey);
+        if (!$priv) {
+            $this->record($cfg, $wrapId, null, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'no key for recipient', null, $mailboxPubkey);
+
+            return null;
+        }
+
         try {
-            $unwrapped = GiftWrap::unwrap($wrap, $cfg->getPrivateKey(), $cfg->pubkey);
+            $unwrapped = GiftWrap::unwrap($wrap, $priv, $mailboxPubkey);
         } catch (\Throwable $e) {
             $this->log('wrap '.substr($wrapId, 0, 8).' rejected: '.$e->getMessage());
-            $this->record($cfg, $wrapId, null, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, null, null, $relayUrl, NostrEvent::STATUS_FAILED, $e->getMessage());
+            $this->record($cfg, $wrapId, null, (string) ($wrap['pubkey'] ?? ''), GiftWrap::KIND_WRAP, null, null, $relayUrl, NostrEvent::STATUS_FAILED, $e->getMessage(), null, $mailboxPubkey);
 
             return null;
         }
@@ -54,23 +69,23 @@ class IncomingMessageHandler
         $kind = $rumor['kind'];
 
         if (NostrEvent::seenRumor($rumor['id'])) {
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_OK, 'duplicate');
+            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_OK, 'duplicate', null, $mailboxPubkey);
 
             return null;
         }
-        if ($pubkey === $cfg->pubkey) {
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_OK, 'own message');
+        if ($cfg->hasPubkey($pubkey)) {
+            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_OK, 'own message', null, $mailboxPubkey);
 
             return null;
         }
         if (!in_array($kind, [GiftWrap::KIND_DM, GiftWrap::KIND_FILE])) {
             $this->log('unsupported kind '.$kind.' from '.Keys::shortNpub($pubkey));
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'unsupported kind');
+            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'unsupported kind', null, $mailboxPubkey);
 
             return null;
         }
-        if (!in_array($cfg->pubkey, array_map('strtolower', EventBuilder::tagValues($rumor, 'p')))) {
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'not addressed to mailbox');
+        if (!in_array($mailboxPubkey, array_map('strtolower', EventBuilder::tagValues($rumor, 'p')))) {
+            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'not addressed to mailbox', null, $mailboxPubkey);
 
             return null;
         }
@@ -126,12 +141,12 @@ class IncomingMessageHandler
 
         if (!$thread || !$conversation) {
             $this->log('could not create a thread for message from '.Keys::shortNpub($pubkey));
-            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'could not create thread');
+            $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, null, null, $relayUrl, NostrEvent::STATUS_FAILED, 'could not create thread', null, $mailboxPubkey);
 
             return null;
         }
 
-        $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, $conversation->id, $thread->id, $relayUrl, NostrEvent::STATUS_OK, null, $createdAt);
+        $this->record($cfg, $wrapId, $rumor['id'], $pubkey, $kind, $conversation->id, $thread->id, $relayUrl, NostrEvent::STATUS_OK, null, $createdAt, $mailboxPubkey);
 
         $key = CustomerKey::byPubkey($pubkey);
         if ($key) {
@@ -349,11 +364,12 @@ class IncomingMessageHandler
         return 'nostr-file-'.substr($id ?: md5($url), 0, 8).'.'.$ext;
     }
 
-    protected function record(NostrMailbox $cfg, $wrapId, $rumorId, $pubkey, $kind, $conversationId, $threadId, $relayUrl, $status, $error = null, $createdAt = null)
+    protected function record(NostrMailbox $cfg, $wrapId, $rumorId, $pubkey, $kind, $conversationId, $threadId, $relayUrl, $status, $error = null, $createdAt = null, $mailboxPubkey = null)
     {
         try {
             $event = new NostrEvent();
             $event->mailbox_id = $cfg->mailbox_id;
+            $event->mailbox_pubkey = $mailboxPubkey ?: $cfg->pubkey;
             $event->direction = NostrEvent::DIRECTION_IN;
             $event->wrap_id = $wrapId;
             $event->rumor_id = $rumorId;

@@ -32,9 +32,11 @@
                                 <dd><code id="nostr-npub">{{ $cfg->getNpub() }}</code> <a href="#" class="btn btn-default btn-xs" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('nostr-npub').textContent); return false;">{{ __('Copy') }}</a></dd>
                                 <dt>{{ __('Hex') }}</dt>
                                 <dd><small class="text-help">{{ $cfg->pubkey }}</small></dd>
+                                <dt>{{ __('Key since') }}</dt>
+                                <dd>{{ $cfg->key_created_at ? App\User::dateFormat($cfg->key_created_at) : '' }}</dd>
                                 @if ($cfg->getNip05())
                                     <dt>{{ __('Address') }}</dt>
-                                    <dd>{{ $cfg->getNip05() }}</dd>
+                                    <dd>{{ $cfg->getNip05() }} @if ($cfg->nip05ServedHere())<small class="text-success">{{ __('served by this FreeScout') }}</small>@else<small class="text-warning">{{ __('needs the file below on :domain', ['domain' => $cfg->getNip05Domain()]) }}</small>@endif</dd>
                                 @endif
                                 <dt>{{ __('Messages') }}</dt>
                                 <dd>{{ __(':in received, :out sent', ['in' => $stats['incoming'], 'out' => $stats['outgoing']]) }}@if ($stats['failed']), <span class="text-danger">{{ __(':failed failed', ['failed' => $stats['failed']]) }}</span>@endif</dd>
@@ -43,6 +45,138 @@
                                 <dt>{{ __('Last announced') }}</dt>
                                 <dd>{{ $cfg->last_announced_at ? App\User::dateFormat($cfg->last_announced_at) : __('never') }}</dd>
                             </dl>
+                        </div>
+                    </div>
+                @endif
+
+                @if (session('nostr_reveal_nsec'))
+                    <div class="alert alert-warning">
+                        <strong>{{ __('Private key of this mailbox') }}</strong> <small>{{ __('(shown once; store it somewhere safe, anyone who has it can read and send messages as this mailbox)') }}</small>
+                        <pre class="margin-top">{{ session('nostr_reveal_nsec') }}</pre>
+                    </div>
+                @endif
+
+                <h3 class="subheader">{{ __('Keys') }}</h3>
+
+                @if (!$cfg->pubkey)
+                    <div class="form-horizontal">
+                        <div class="form-group">
+                            <label class="col-sm-2 control-label">{{ __('Keypair') }}</label>
+                            <div class="col-sm-8">
+                                <p class="form-control-static text-warning">{{ __('No keypair yet. Generate one, or import the private key of an existing Nostr identity.') }}</p>
+                                <form method="POST" action="{{ route('mailboxes.nostr.save', ['id' => $mailbox->id]) }}" class="form-inline">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="action" value="generate">
+                                    <button type="submit" class="btn btn-primary btn-sm">{{ __('Generate keypair') }}</button>
+                                </form>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="nostr_nsec" class="col-sm-2 control-label">{{ __('Import private key') }}</label>
+                            <div class="col-sm-8">
+                                <form method="POST" action="{{ route('mailboxes.nostr.save', ['id' => $mailbox->id]) }}">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="action" value="import">
+                                    <div class="input-group">
+                                        <input type="password" id="nostr_nsec" name="nsec" class="form-control" placeholder="nsec1…" autocomplete="off">
+                                        <span class="input-group-btn"><button type="submit" class="btn btn-default">{{ __('Import') }}</button></span>
+                                    </div>
+                                    <div class="form-help">{{ __('nsec or hex. The private key is stored encrypted with the application key.') }}</div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                @else
+                    <p class="block-help">
+                        {{ __('The keypair is the identity customers write to. It is never deleted by accident: replacing it retires the old key, which keeps receiving messages and keeps answering its conversations, and every change below asks for your password.') }}
+                    </p>
+
+                    @if (count($retired_keys))
+                        <table class="table table-condensed">
+                            <thead>
+                                <tr>
+                                    <th>{{ __('Retired key') }}</th>
+                                    <th>{{ __('Used') }}</th>
+                                    <th>{{ __('Retired') }}</th>
+                                    <th>{{ __('Messages') }}</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($retired_keys as $key)
+                                    <tr>
+                                        <td><code title="{{ $key->pubkey }}">{{ $key->getNpub() }}</code></td>
+                                        <td>{{ $key->key_created_at ? App\User::dateFormat($key->key_created_at, 'M j, Y') : '' }}</td>
+                                        <td>{{ $key->retired_at ? App\User::dateFormat($key->retired_at, 'M j, Y') : '' }}</td>
+                                        <td>{{ $key->getMessageCount() }}@if ($key->getLastMessageAt()) <small class="text-help">({{ __('last') }} {{ App\User::dateFormat(\Illuminate\Support\Carbon::parse($key->getLastMessageAt()), 'M j, Y') }})</small>@endif</td>
+                                        <td class="text-right"><a data-toggle="collapse" href="#nostr-delete-key-{{ $key->id }}" class="btn btn-default btn-xs">{{ __('Delete…') }}</a></td>
+                                    </tr>
+                                    <tr id="nostr-delete-key-{{ $key->id }}" class="collapse">
+                                        <td colspan="5">
+                                            <form method="POST" action="{{ route('mailboxes.nostr.save', ['id' => $mailbox->id]) }}" class="form-inline">
+                                                {{ csrf_field() }}
+                                                <input type="hidden" name="action" value="delete_key">
+                                                <input type="hidden" name="key_id" value="{{ $key->id }}">
+                                                <span class="text-danger">{{ __('Messages still sent to this key will be unreadable forever.') }}</span>
+                                                <input type="password" name="password" class="form-control input-sm" placeholder="{{ __('Your password') }}" autocomplete="current-password" required>
+                                                <input type="text" name="confirm" class="form-control input-sm" placeholder="{{ __('Type DELETE') }}" autocomplete="off" required>
+                                                <button type="submit" class="btn btn-danger btn-sm">{{ __('Delete retired key') }}</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    @endif
+
+                    <p>
+                        <a data-toggle="collapse" href="#nostr-key-reveal" class="btn btn-default btn-sm">{{ __('Show private key (backup)…') }}</a>
+                        <a data-toggle="collapse" href="#nostr-key-replace" class="btn btn-default btn-sm">{{ __('Replace the key…') }}</a>
+                    </p>
+
+                    <div id="nostr-key-reveal" class="collapse">
+                        <div class="panel panel-default">
+                            <div class="panel-body">
+                                <form method="POST" action="{{ route('mailboxes.nostr.save', ['id' => $mailbox->id]) }}" class="form-inline">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="action" value="reveal">
+                                    <p class="text-help">{{ __('Keep a copy of the private key outside this server so the identity survives a lost database or a migration.') }}</p>
+                                    <input type="password" name="password" class="form-control" placeholder="{{ __('Your password') }}" autocomplete="current-password" required>
+                                    <button type="submit" class="btn btn-default">{{ __('Show private key') }}</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="nostr-key-replace" class="collapse">
+                        <div class="panel panel-danger">
+                            <div class="panel-heading"><h4 class="panel-title">{{ __('Replace the key') }}</h4></div>
+                            <div class="panel-body">
+                                <form method="POST" action="{{ route('mailboxes.nostr.save', ['id' => $mailbox->id]) }}" class="form-horizontal">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="action" value="replace">
+                                    <p class="text-help">{{ __('Customers who saved the current public key can still reach this mailbox afterwards: the current key is retired, not deleted. New customers are pointed to the new key through the profile, the relay lists and the address.') }}</p>
+                                    <div class="form-group">
+                                        <label class="col-sm-3 control-label">{{ __('New key') }}</label>
+                                        <div class="col-sm-9">
+                                            <label class="radio-inline"><input type="radio" name="replace_mode" value="generate" checked> {{ __('Generate') }}</label>
+                                            <label class="radio-inline"><input type="radio" name="replace_mode" value="import"> {{ __('Import') }}</label>
+                                            <input type="password" name="nsec" class="form-control margin-top-10" placeholder="{{ __('nsec1… (only when importing)') }}" autocomplete="off">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="col-sm-3 control-label">{{ __('Your password') }}</label>
+                                        <div class="col-sm-9"><input type="password" name="password" class="form-control" autocomplete="current-password" required></div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="col-sm-3 control-label">{{ __('Type REPLACE') }}</label>
+                                        <div class="col-sm-9"><input type="text" name="confirm" class="form-control" autocomplete="off" required></div>
+                                    </div>
+                                    <div class="form-group">
+                                        <div class="col-sm-9 col-sm-offset-3"><button type="submit" class="btn btn-danger">{{ __('Replace the key') }}</button></div>
+                                    </div>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 @endif
@@ -62,32 +196,6 @@
                                 </div>
                             </div>
                             @include('partials/field_error', ['field'=>'enabled'])
-                        </div>
-                    </div>
-
-                    <h3 class="subheader">{{ __('Keys') }}</h3>
-
-                    <div class="form-group">
-                        <label class="col-sm-2 control-label">{{ __('Keypair') }}</label>
-                        <div class="col-sm-8">
-                            @if ($cfg->pubkey)
-                                <p class="form-control-static">{{ __('This mailbox has a keypair.') }} <small class="text-help">{{ __('Generating a new one changes the public key customers write to.') }}</small></p>
-                                <button type="submit" name="action" value="generate" class="btn btn-default btn-sm" onclick="return confirm('{{ __('Replace the current keypair? Customers who saved the old public key will no longer reach this mailbox.') }}');">{{ __('Generate new keypair') }}</button>
-                            @else
-                                <p class="form-control-static text-warning">{{ __('No keypair yet. Generate one or import an existing private key.') }}</p>
-                                <button type="submit" name="action" value="generate" class="btn btn-primary btn-sm">{{ __('Generate keypair') }}</button>
-                            @endif
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="nostr_nsec" class="col-sm-2 control-label">{{ __('Import private key') }}</label>
-                        <div class="col-sm-8">
-                            <div class="input-group">
-                                <input type="password" id="nostr_nsec" name="nsec" class="form-control" placeholder="nsec1…" autocomplete="off">
-                                <span class="input-group-btn"><button type="submit" name="action" value="import" class="btn btn-default" onclick="return document.getElementById('nostr_nsec').value !== '' && confirm('{{ __('Replace the current keypair with the imported key?') }}');">{{ __('Import') }}</button></span>
-                            </div>
-                            <div class="form-help">{{ __('nsec or hex. The private key is stored encrypted with the application key and never shown again.') }}</div>
                         </div>
                     </div>
 
@@ -136,22 +244,33 @@
                         </div>
                     </div>
 
-                    <div class="form-group{{ $errors->has('nip05_name') ? ' has-error' : '' }}">
-                        <label for="nostr_nip05_name" class="col-sm-2 control-label">{{ __('Verified address') }}</label>
+                    <div class="form-group{{ $errors->has('nip05') ? ' has-error' : '' }}">
+                        <label for="nostr_nip05" class="col-sm-2 control-label">{{ __('Address') }}</label>
                         <div class="col-sm-6">
-                            <div class="input-group">
-                                <input type="text" id="nostr_nip05_name" name="nip05_name" class="form-control" value="{{ old('nip05_name', $cfg->nip05_name ?? '') }}" placeholder="support" maxlength="64">
-                                <span class="input-group-addon">{{ '@'.$nip05_host }}</span>
-                            </div>
+                            <input type="text" id="nostr_nip05" name="nip05" class="form-control" value="{{ old('nip05', $cfg->nip05 ?? '') }}" placeholder="support@yourdomain.com" maxlength="255">
                             <div class="form-help">
-                                {{ __('Optional NIP-05 address served by FreeScout at /.well-known/nostr.json. Leave empty to disable.') }}
-                                @if (!$nip05_root)
-                                    <span class="text-warning">{{ __('FreeScout is installed in a subdirectory, so the address only works if your web server maps /.well-known/nostr.json to it.') }}</span>
+                                {{ __('Optional NIP-05 address customers can look up instead of the npub. Any domain works: the domain must serve /.well-known/nostr.json.') }}
+                                @if ($cfg->getNip05Domain() && $cfg->nip05ServedHere())
+                                    <span class="text-success">{{ __('This FreeScout answers on :domain, so the file is served automatically.', ['domain' => $cfg->getNip05Domain()]) }}</span>
                                 @endif
                             </div>
-                            @include('partials/field_error', ['field'=>'nip05_name'])
+                            @include('partials/field_error', ['field'=>'nip05'])
                         </div>
                     </div>
+
+                    @if ($nip05_json && !$cfg->nip05ServedHere())
+                        <div class="form-group">
+                            <div class="col-sm-8 col-sm-offset-2">
+                                <div class="panel panel-default">
+                                    <div class="panel-heading"><h4 class="panel-title">{{ __('Host this file at :url', ['url' => $nip05_url]) }}</h4></div>
+                                    <div class="panel-body">
+                                        <p class="text-help">{{ __('Serve it as application/json with the header Access-Control-Allow-Origin: *. Update it when you change the inbox relays or the key.') }}</p>
+                                        <pre>{{ $nip05_json }}</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    @endif
 
                     <h3 class="subheader">{{ __('Conversations') }}</h3>
 

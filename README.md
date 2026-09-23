@@ -7,7 +7,9 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
 ## What it does
 
 - One Nostr keypair per mailbox (generated in the mailbox settings, or import an existing `nsec`).
-  The private key is stored encrypted with the application key.
+  The private key is stored encrypted with the application key. Keys are never lost by accident:
+  replacing a key needs the admin's password and a typed confirmation, and the old key is retired
+  rather than deleted (see below).
 - Receives NIP-17 private direct messages (kind 14 text, kind 15 encrypted files) wrapped per
   NIP-59 and encrypted with NIP-44. Legacy NIP-04 messages are ignored.
 - A new message reopens the customer's latest Nostr conversation in that mailbox if it had activity
@@ -18,8 +20,7 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
 - Agent replies are sent as plain text. Attachments are appended as download links.
 - Optional one-time auto reply for new conversations.
 - Good citizen: publishes the mailbox's kind 0 profile, kind 10050 DM relay list and kind 10002
-  relay list, answers NIP-42 AUTH challenges, and can serve a NIP-05 address from
-  `/.well-known/nostr.json`.
+  relay list, answers NIP-42 AUTH challenges, and supports a NIP-05 address on any domain.
 
 ## Requirements
 
@@ -40,6 +41,26 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
 4. Share the mailbox's `npub` (or its NIP-05 address) with your customers.
 
 Defaults for the relay lists live in Settings » Nostr.
+
+### Keys
+
+The keypair is the identity customers write to, so the module treats it carefully:
+
+- **Backup**: "Show private key" displays the `nsec` once after you enter your password. Keep a copy
+  outside the server so the identity survives a lost database.
+- **Replace**: "Replace the key" needs your password and the word `REPLACE`. The current key is
+  *retired*, not deleted: the listener keeps receiving messages sent to it, and conversations that
+  came in on it are still answered from it, so customers who saved the old `npub` are not cut off.
+  Only the new key is announced (profile, relay lists, address).
+- **Delete a retired key**: possible from the retired keys table, again with password and the word
+  `DELETE`. Messages sent to a deleted key are unreadable forever.
+
+### NIP-05 address
+
+The address (for example `support@yourdomain.com`) can use any domain. Whoever serves that domain
+must answer `https://yourdomain.com/.well-known/nostr.json` with the mailbox's name and key; the
+settings page shows the exact JSON to host. If the domain is this FreeScout installation itself
+(and FreeScout is not in a subdirectory), the file is served automatically.
 
 ### Relays
 
@@ -83,10 +104,16 @@ wrote the latest message). If the callback response contains `"customer": {"emai
 | Table                 | Purpose                                                                 |
 |-----------------------|-------------------------------------------------------------------------|
 | `nostr_mailboxes`     | Per-mailbox key (encrypted), relays, profile, auto reply, reopen window |
+| `nostr_mailbox_keys`  | Retired keys (encrypted), still receiving and answering                  |
 | `nostr_customer_keys` | Public keys linked to customers, cached profile and DM relays           |
 | `nostr_events`        | Every gift wrap received or sent (de-duplication, reply threading)      |
 
 Conversations created by the module have `type = chat` and `channel = 90`.
+
+## Upgrading
+
+After updating the module files, run `php artisan freescout:module-install nostr` so new
+migrations are applied.
 
 ## Development
 
