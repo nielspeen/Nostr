@@ -154,10 +154,10 @@ try {
     check('auto reply and profile fetch queued', \DB::table('jobs')->where('payload', 'like', '%nostr.auto_reply%')->exists() && \DB::table('jobs')->where('payload', 'like', '%nostr.fetch_profile%')->exists());
     check('threads_count and preview maintained', $conv->fresh()->threads_count == 1 && $conv->fresh()->preview !== '');
     $h = $thread1->fresh()->headers;
-    check('pseudo headers stored on the thread', strpos($h, 'X-Nostr-Relay: wss://relay.example.org') !== false && strpos($h, 'X-Nostr-Wrap-Id: '.$wrap1['id']) !== false && strpos($h, 'X-Nostr-Rumor-Id: '.$rumor1['id']) !== false && strpos($h, 'X-Nostr-From: '.Keys::npub($custPub)) !== false && strpos($h, 'X-Nostr-Subject: VPN problem') !== false, $h);
+    check('pseudo headers stored on the thread', strpos($h, 'Nostr-Relay: wss://relay.example.org') !== false && strpos($h, 'Nostr-Wrap-Id: '.$wrap1['id']) !== false && strpos($h, 'Nostr-Rumor-Id: '.$rumor1['id']) !== false && strpos($h, 'Nostr-Sender: '.Keys::npub($custPub)) !== false && strpos($h, 'Nostr-Subject-Tag: VPN problem') !== false, $h);
     $r = req($kernel, 'GET', "/conversation/{$conv->id}"); // warm up route for ajax below
     $r = req($kernel, 'GET', '/conversation/ajax-html/show_original?thread_id='.$thread1->id);
-    check('show original has a headers tab', $r->getStatusCode() === 200 && strpos($r->getContent(), 'X-Nostr-Relay') !== false, $r->getStatusCode().' '.substr(strip_tags($r->getContent()), 0, 200));
+    check('show original has a headers tab', $r->getStatusCode() === 200 && strpos($r->getContent(), 'Nostr-Relay') !== false, $r->getStatusCode().' '.substr(strip_tags($r->getContent()), 0, 200));
 
     // Duplicate delivery from another relay.
     $count = NostrEvent::count();
@@ -272,6 +272,9 @@ try {
     $r = req($kernel, 'GET', "/conversation/{$conv->id}?folder_id=".$conv->fresh()->folder_id);
     check('conversation page renders with Nostr tag', $r->getStatusCode() === 200 && preg_match('/fs-tag-name[^>]*>.*Nostr/s', $r->getContent()), $r->getStatusCode().' '.$r->headers->get('Location'));
     check('customer sidebar lists keys', strpos($r->getContent(), Keys::shortNpub($custPub)) !== false);
+    check('empty From line removed by page script', strpos($r->getContent(), ".thread-recipients > div').filter(") !== false);
+    $r = req($kernel, 'GET', '/mailbox/'.$mid);
+    check('page script only on Nostr conversations', $r->getStatusCode() === 200 && strpos($r->getContent(), ".thread-recipients > div').filter(") === false, $r->getStatusCode());
 
     // Outgoing reply: relays unreachable -> send error recorded on the thread.
     $reply = Thread::createExtended(['type' => Thread::TYPE_MESSAGE, 'body' => '<p>We are <b>on it</b>.<br>Try again &amp; report back.</p>', 'created_by_user_id' => $admin->id], $conv->fresh(), $customer);
@@ -282,7 +285,7 @@ try {
     $elapsed = microtime(true) - $t0;
     $reply = $reply->fresh();
     check('unreachable relays -> send error on thread', $reply->send_status == \App\SendLog::STATUS_SEND_ERROR && strpos((string) $reply->send_status_data, 'relay') !== false, $reply->send_status.' '.$reply->send_status_data);
-    check('outgoing pseudo headers stored', strpos((string) $reply->headers, 'X-Nostr-Relays: ') !== false && strpos((string) $reply->headers, 'failed:') !== false && strpos((string) $reply->headers, 'X-Nostr-To: '.Keys::npub($custPub)) !== false, (string) $reply->headers);
+    check('outgoing pseudo headers stored', strpos((string) $reply->headers, 'Nostr-Relays: ') !== false && strpos((string) $reply->headers, 'failed:') !== false && strpos((string) $reply->headers, 'Nostr-Recipient: '.Keys::npub($custPub)) !== false, (string) $reply->headers);
     $out = NostrEvent::where('thread_id', $reply->id)->where('direction', NostrEvent::DIRECTION_OUT)->first();
     check('outgoing event recorded as failed with target relays', $out && $out->status == NostrEvent::STATUS_FAILED && isset($out->getRelays()['ws://127.0.0.1:1']) && isset($out->getRelays()['wss://relay.example.org']), $out ? $out->relays : 'none');
     check('failure was fast', $elapsed < 20, round($elapsed, 1).'s');

@@ -175,6 +175,20 @@ class NostrServiceProvider extends ServiceProvider
             return $person;
         }, 20, 2);
 
+        // FreeScout prints a "From:" line for customer threads when the customer has several
+        // emails or a Reply-To differs; for Nostr threads that line is empty. Remove it.
+        \Eventy::addAction('javascript', function () {
+            if (!\Route::is('conversations.view')) {
+                return;
+            }
+            $id = (int) request()->route('id');
+            $conversation = $id ? \App\Conversation::find($id) : null;
+            if (!$conversation || (int) $conversation->channel !== (int) config('nostr.channel')) {
+                return;
+            }
+            echo "$('.thread-recipients > div').filter(function () { return $.trim($(this).text()).replace(/\\s+/g, ' ') === '".addslashes(__('From')).":'; }).remove();\n";
+        });
+
         // Hand the customer's keys to the CustomApp callback so the backend can link them.
         \Eventy::addFilter('customapp.payload', function ($payload, $conversation, $customer, $mailbox) {
             $pubkeys = CustomerKey::forCustomer($customer->id)->pluck('pubkey')->values()->all();

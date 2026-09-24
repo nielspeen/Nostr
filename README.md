@@ -86,8 +86,9 @@ update, when FreeScout clears the scheduler's mutex together with its cache) ask
 stop and takes over. Every gift wrap and every message id is claimed in the database before it is
 processed, so a message delivered by several relays, or seen by two processes, becomes one thread.
 
-"Show original" on a Nostr message shows pseudo headers (X-Nostr-Relay, X-Nostr-From, wrap, seal and
-message ids, timestamps, tags) instead of email headers; sent replies list the relays and their answers.
+"Show original" on a Nostr message shows pseudo headers (Nostr-Relay, Nostr-Sender, Nostr-Recipient,
+wrap, seal and message ids, timestamps, tags) instead of email headers; sent replies list the relays
+and their answers.
 
 The mailbox settings page shows whether the listener is running (process, restart time, one row per
 inbox relay with its connection state and last error, FreeScout's cron status) and the tail of its log.

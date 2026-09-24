@@ -103,6 +103,8 @@ class Listener
      */
     protected function acquireLock()
     {
+        $this->stopOtherListeners();
+
         $path = storage_path('app/nostr-listen.lock');
         $this->lockHandle = @fopen($path, 'c+');
         if (!$this->lockHandle) {
@@ -135,6 +137,35 @@ class Listener
         $this->lockHandle = null;
 
         return false;
+    }
+
+    /**
+     * Listeners from before the lock file existed do not know about it: ask every other
+     * nostr:listen process on this machine to stop, whatever version it runs.
+     */
+    protected function stopOtherListeners()
+    {
+        if (!function_exists('posix_kill') || !function_exists('shell_exec')) {
+            return;
+        }
+        try {
+            $others = [];
+            foreach (\Helper::getRunningProcesses('nostr:listen') as $pid) {
+                $pid = (int) $pid;
+                if ($pid > 0 && $pid !== getmypid() && $pid !== posix_getppid()) {
+                    $others[] = $pid;
+                }
+            }
+            if ($others) {
+                $this->log('stopping other listener process(es): '.implode(', ', $others));
+                foreach ($others as $pid) {
+                    @posix_kill($pid, SIGTERM);
+                }
+                sleep(2);
+            }
+        } catch (\Throwable $e) {
+            // Best effort only.
+        }
     }
 
     protected function tryLock()

@@ -77,7 +77,7 @@ try {
     $cmd2 = 'cd '.escapeshellarg(realpath(__DIR__.'/../../..')).' && exec '.escapeshellarg(PHP_BINARY).' artisan nostr:listen --lifetime=120 > '.escapeshellarg($logFile2).' 2>&1';
     $proc2 = proc_open($cmd2, [], $pipes2);
     $waitFor2 = function ($needle, $seconds) use ($logFile2) { $t0 = microtime(true); while (microtime(true) - $t0 < $seconds) { if (file_exists($logFile2) && strpos(file_get_contents($logFile2), $needle) !== false) return true; usleep(500000); } return false; };
-    check('newcomer asks the old listener to stop', $waitFor2('asking it to stop', 10), file_exists($logFile2) ? file_get_contents($logFile2) : 'no log');
+    check('newcomer asks the old listener to stop', $waitFor2('stopping other listener', 10) || $waitFor2('asking it to stop', 5), file_exists($logFile2) ? file_get_contents($logFile2) : 'no log');
     check('old listener stopped on request', $waitFor('listener stopped', 15), file_get_contents($logFile));
     check('newcomer took over', $waitFor2('listener started', 25) && $waitFor2('caught up with wss://nos.lol', 20), file_get_contents($logFile2));
     $pid2 = proc_get_status($proc2)['pid'];

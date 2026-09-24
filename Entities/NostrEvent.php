@@ -51,6 +51,9 @@ class NostrEvent extends Model
      */
     public function claimRumor($rumor_id)
     {
+        if (self::where('rumor_id', $rumor_id)->where('id', '!=', $this->id)->exists()) {
+            return false;
+        }
         $this->rumor_id = $rumor_id;
         try {
             $this->save();

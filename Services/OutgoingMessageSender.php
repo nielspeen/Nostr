@@ -113,15 +113,15 @@ class OutgoingMessageSender
         $from = $result['event']->mailbox_pubkey ?? $cfg->pubkey;
 
         return IncomingMessageHandler::formatHeaders([
-            'X-Nostr-Protocol' => 'NIP-17 (gift wrap kind 1059, seal kind 13, message kind 14)',
-            'X-Nostr-From' => Keys::npub($from).' ('.$from.', '.($from === $cfg->pubkey ? 'current key' : 'retired key').')',
-            'X-Nostr-To' => Keys::npub($pubkey).' ('.$pubkey.')',
-            'X-Nostr-Relays' => implode(', ', $relays) ?: 'none',
-            'X-Nostr-Sent' => now()->toIso8601String(),
-            'X-Nostr-Rumor-Id' => $result['rumor']['id'] ?? '',
-            'X-Nostr-Wrap-Id' => $result['wrap']['id'] ?? '',
-            'X-Nostr-Reply-To' => $last->rumor_id ?? '',
-            'X-Nostr-Tags' => isset($result['rumor']['tags']) ? json_encode($result['rumor']['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '',
+            'Nostr-Protocol' => 'NIP-17 (gift wrap kind 1059, seal kind 13, message kind 14)',
+            'Nostr-Sender' => Keys::npub($from).' ('.$from.', '.($from === $cfg->pubkey ? 'current key' : 'retired key').')',
+            'Nostr-Recipient' => Keys::npub($pubkey).' ('.$pubkey.')',
+            'Nostr-Relays' => implode(', ', $relays) ?: 'none',
+            'Nostr-Sent' => now()->toIso8601String(),
+            'Nostr-Rumor-Id' => $result['rumor']['id'] ?? '',
+            'Nostr-Wrap-Id' => $result['wrap']['id'] ?? '',
+            'Nostr-Parent-Id' => $last->rumor_id ?? '',
+            'Nostr-Tags' => isset($result['rumor']['tags']) ? json_encode($result['rumor']['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '',
         ]);
     }
 

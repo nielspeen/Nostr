@@ -155,19 +155,19 @@ class IncomingMessageHandler
         // Shown under "Show original" » headers.
         try {
             $thread->headers = self::formatHeaders([
-                'X-Nostr-Protocol' => 'NIP-17 (gift wrap kind 1059, seal kind 13, message kind '.$kind.')',
-                'X-Nostr-From' => Keys::npub($pubkey).' ('.$pubkey.')',
-                'X-Nostr-To' => Keys::npub($mailboxPubkey).' ('.$mailboxPubkey.', '.($mailboxPubkey === $cfg->pubkey ? 'current key' : 'retired key').')',
-                'X-Nostr-Relay' => $relayUrl ?: 'unknown',
-                'X-Nostr-Received' => now()->toIso8601String(),
-                'X-Nostr-Sent' => Carbon::createFromTimestamp((int) $rumor['created_at'])->toIso8601String().' (as stated by the sender)',
-                'X-Nostr-Rumor-Id' => $rumor['id'],
-                'X-Nostr-Seal-Id' => $unwrapped['seal']['id'] ?? '',
-                'X-Nostr-Wrap-Id' => $wrapId,
-                'X-Nostr-Wrap-Created' => Carbon::createFromTimestamp((int) ($wrap['created_at'] ?? 0))->toIso8601String().' (randomized by the sender)',
-                'X-Nostr-Subject' => EventBuilder::firstTag($rumor, 'subject'),
-                'X-Nostr-Reply-To' => EventBuilder::firstTag($rumor, 'e'),
-                'X-Nostr-Tags' => json_encode($rumor['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'Nostr-Protocol' => 'NIP-17 (gift wrap kind 1059, seal kind 13, message kind '.$kind.')',
+                'Nostr-Sender' => Keys::npub($pubkey).' ('.$pubkey.')',
+                'Nostr-Recipient' => Keys::npub($mailboxPubkey).' ('.$mailboxPubkey.', '.($mailboxPubkey === $cfg->pubkey ? 'current key' : 'retired key').')',
+                'Nostr-Relay' => $relayUrl ?: 'unknown',
+                'Nostr-Received' => now()->toIso8601String(),
+                'Nostr-Sent' => Carbon::createFromTimestamp((int) $rumor['created_at'])->toIso8601String().' (as stated by the sender)',
+                'Nostr-Rumor-Id' => $rumor['id'],
+                'Nostr-Seal-Id' => $unwrapped['seal']['id'] ?? '',
+                'Nostr-Wrap-Id' => $wrapId,
+                'Nostr-Wrap-Created' => Carbon::createFromTimestamp((int) ($wrap['created_at'] ?? 0))->toIso8601String().' (randomized by the sender)',
+                'Nostr-Subject-Tag' => EventBuilder::firstTag($rumor, 'subject'),
+                'Nostr-Parent-Id' => EventBuilder::firstTag($rumor, 'e'),
+                'Nostr-Tags' => json_encode($rumor['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             ]);
             $thread->save();
         } catch (\Throwable $e) {
