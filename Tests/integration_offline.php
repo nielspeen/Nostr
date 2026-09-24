@@ -229,6 +229,17 @@ try {
     [$wrapK] = GiftWrap::wrap(['kind' => 4, 'content' => 'x', 'tags' => [['p', $cfg->pubkey]]], $custPriv, $cfg->pubkey);
     check('unsupported kind logged and skipped', $handler->handleGiftWrap($cfg, $wrapK, null) === null && NostrEvent::where('wrap_id', $wrapK['id'])->value('error') === 'unsupported kind');
 
+    // The core email auto reply stays silent for Nostr conversations, even when the customer has an email.
+    $mbAuto = \App\Mailbox::find($mid); $mbAuto->auto_reply_enabled = true; $mbAuto->auto_reply_subject = 'Thanks'; $mbAuto->auto_reply_message = 'We got it'; $mbAuto->save();
+    $customer->addEmail('nostr-customer-'.bin2hex(random_bytes(3)).'@example.com', true);
+    Conversation::where('customer_id', $customer->id)->update(['last_reply_at' => now()->subDays(40)]);
+    \DB::table('jobs')->where('payload', 'like', '%SendAutoReply%')->delete();
+    [$wrapE] = GiftWrap::wrap(['kind' => 14, 'content' => 'Hello again after merge', 'tags' => [['p', $cfg->pubkey]]], $custPriv, $cfg->pubkey);
+    $threadE = $handler->handleGiftWrap($cfg, $wrapE, null);
+    check('new conversation for the merged customer', $threadE && $threadE->conversation->customer_id == $customer->id);
+    check('email auto reply suppressed for Nostr conversations', \Eventy::filter('autoreply.should_send', true, $threadE->conversation) === false && !\DB::table('jobs')->where('payload', 'like', '%SendAutoReply%')->exists());
+    check('email auto reply still allowed elsewhere', \Eventy::filter('autoreply.should_send', true, new Conversation()) === true);
+
     // Legacy NIP-04 messages are recorded once, never turned into conversations, and reported on the page.
     $legacy = \Modules\Nostr\Services\EventBuilder::finalize(['kind' => 4, 'content' => 'ciphertext?iv=abc', 'tags' => [['p', $cfg->pubkey]]], $custPriv);
     $convCount = Conversation::count();

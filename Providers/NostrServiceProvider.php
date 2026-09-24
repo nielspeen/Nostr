@@ -98,6 +98,16 @@ class NostrServiceProvider extends ServiceProvider
             }
         }, 36);
 
+        // The mailbox's email auto reply must not go out for Nostr conversations (a merged
+        // customer may well have an email address); the channel has its own auto reply.
+        \Eventy::addFilter('autoreply.should_send', function ($send, $conversation) use ($channel) {
+            if ($conversation && (int) $conversation->channel === $channel) {
+                return false;
+            }
+
+            return $send;
+        }, 20, 2);
+
         // Agent replied to a chat conversation: deliver it over Nostr.
         \Eventy::addAction('chat_conversation.send_reply', function ($conversation, $replies, $customer) {
             try {
