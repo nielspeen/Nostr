@@ -81,6 +81,9 @@ try {
     check('old listener stopped on request', $waitFor('listener stopped', 15), file_get_contents($logFile));
     check('newcomer took over', $waitFor2('listener started', 25) && $waitFor2('caught up with wss://nos.lol', 20), file_get_contents($logFile2));
     $pid2 = proc_get_status($proc2)['pid'];
+    sleep(1);
+    $status = \Modules\Nostr\Services\ListenerStatus::read();
+    check('heartbeat belongs to the newcomer after the handover', $status && (int) $status['pid'] === $pid2 && empty($status['stopped_at']) && \Modules\Nostr\Services\ListenerStatus::forMailbox($cfg->fresh())['state'] === 'running', json_encode($status));
 
     // SIGTERM stops it cleanly.
     posix_kill($pid2, SIGTERM);

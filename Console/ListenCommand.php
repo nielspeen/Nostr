@@ -16,8 +16,9 @@ class ListenCommand extends Command
 
     public function handle()
     {
+        // The process id tells apart two listeners writing to the same log during a handover.
         $logger = function ($message) {
-            $this->line('['.date('Y-m-d H:i:s').'] '.$message);
+            $this->line('['.date('Y-m-d H:i:s').'] [pid '.getmypid().'] '.$message);
         };
 
         $handler = new IncomingMessageHandler($logger);

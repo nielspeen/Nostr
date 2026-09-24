@@ -630,6 +630,15 @@ class Listener
      */
     protected function publishStatus($stopReason = null)
     {
+        // A process that was asked to stop must not overwrite the heartbeat of the
+        // one that took over from it.
+        if ($stopReason) {
+            $current = ListenerStatus::read();
+            if ($current && (int) ($current['pid'] ?? 0) !== getmypid() && ($current['host'] ?? '') === gethostname()) {
+                return;
+            }
+        }
+
         $connections = [];
         foreach ($this->connections as $state) {
             if ($state['client']) {
