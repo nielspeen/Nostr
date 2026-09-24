@@ -297,6 +297,11 @@ class IncomingMessageHandler
         if (!$conversation) {
             return null;
         }
+        // FreeScout's own chat rule ("start a new conversation when the previous one is closed"),
+        // shared with the other chat channels.
+        if ($conversation->chatShouldStartNew($conversation->mailbox)) {
+            return null;
+        }
 
         $last = $conversation->last_reply_at ?: $conversation->created_at;
         if ($last && !($last instanceof \DateTimeInterface)) {

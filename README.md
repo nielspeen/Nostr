@@ -14,7 +14,8 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
   NIP-59 and encrypted with NIP-44. Legacy NIP-04 messages are never decrypted; they are counted
   and reported on the settings page so you know a sender uses a client that lacks NIP-17.
 - A new message reopens the customer's latest Nostr conversation in that mailbox if it had activity
-  within the reopen window (default 30 days); otherwise a new conversation is started.
+  within the reopen window (default 30 days); otherwise a new conversation is started. FreeScout's
+  own chat setting "start a new conversation when the previous one is closed" is honored as well.
 - Unknown senders become new customers. Their name and picture are filled in from their
   kind 0 profile when available. A customer can have several public keys (personal client, one per
   app install...); replies go to the key that wrote last.

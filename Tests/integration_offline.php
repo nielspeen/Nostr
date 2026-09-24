@@ -209,11 +209,19 @@ try {
     [$wrapGone] = GiftWrap::wrap(['kind' => 14, 'content' => 'x', 'tags' => [['p', $firstPub]]], $custPriv, $firstPub);
     check('message to deleted key rejected', $handler->handleGiftWrap($cfg, $wrapGone, null) === null && NostrEvent::where('wrap_id', $wrapGone['id'])->value('error') === 'not addressed to mailbox');
 
+    // FreeScout's core chat setting: start a new conversation when the previous one is closed.
+    $mb = \App\Mailbox::find($mid); $meta = $mb->meta; $meta['chat_start_new'] = 1; $mb->meta = $meta; $mb->save();
+    Conversation::where('id', $conv->id)->update(['status' => Conversation::STATUS_CLOSED]);
+    [$wrapC] = GiftWrap::wrap(['kind' => 14, 'content' => 'After close', 'tags' => [['p', $cfg->pubkey]]], $custPriv, $cfg->pubkey);
+    $threadC = $handler->handleGiftWrap($cfg, $wrapC, null);
+    check('core chat_start_new setting respected', $threadC && $threadC->conversation_id != $conv->id, $threadC ? $threadC->conversation_id.' vs '.$conv->id : 'no thread');
+    $meta['chat_start_new'] = 0; $mb->meta = $meta; $mb->save();
+
     // Old conversation: new one after the reopen window.
-    Conversation::where('id', $conv->id)->update(['last_reply_at' => now()->subDays(31)]);
+    Conversation::where('id', $threadC->conversation_id)->update(['last_reply_at' => now()->subDays(31)]);
     [$wrap4] = GiftWrap::wrap(['kind' => 14, 'content' => 'New issue months later', 'tags' => [['p', $cfg->pubkey]]], $custPriv, $cfg->pubkey);
     $thread4 = $handler->handleGiftWrap($cfg, $wrap4, null);
-    check('new conversation after reopen window', $thread4 && $thread4->conversation_id != $conv->id && $thread4->conversation->customer_id == $customer->id);
+    check('new conversation after reopen window', $thread4 && $thread4->conversation_id != $threadC->conversation_id && $thread4->conversation->customer_id == $customer->id);
 
     // Wrong recipient and wrong kind are rejected.
     [$wrapX] = GiftWrap::wrap(['kind' => 14, 'content' => 'x', 'tags' => [['p', $cust2Pub]]], $custPriv, $cust2Pub);
