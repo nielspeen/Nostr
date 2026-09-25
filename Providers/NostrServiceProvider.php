@@ -13,6 +13,7 @@ use Modules\Nostr\Entities\CustomerKey;
 use Modules\Nostr\Entities\NostrEvent;
 use Modules\Nostr\Entities\NostrMailbox;
 use Modules\Nostr\Services\Announcer;
+use Modules\Nostr\Services\CustomerLabels;
 use Modules\Nostr\Services\Keys;
 use Modules\Nostr\Services\OutgoingMessageSender;
 use Modules\Nostr\Services\RelayClient;
@@ -79,6 +80,7 @@ class NostrServiceProvider extends ServiceProvider
     public function hooks()
     {
         $channel = (int) config('nostr.channel');
+        (new CustomerLabels())->registerHooks();
 
         // Register the channel with the core.
         \Eventy::addFilter('channels.list', function ($channels) use ($channel) {

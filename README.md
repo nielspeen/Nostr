@@ -116,6 +116,19 @@ includes `customer.nostr_pubkeys`, `customer.nostr_npubs` and `ticket.nostr_pubk
 wrote the latest message). If the callback response contains `"customer": {"email": "...", "fname":
 "...", "lname": "..."}`, CustomApp fills in the missing email and placeholder name of the customer.
 
+The callback may also return `customer.nostr_keys`, a list of
+`{"pubkey": "64-character lowercase hex", "label": "Work laptop"}` entries.
+These labels replace the labels of existing keys on the resolved customer;
+unknown keys and keys belonging to another customer are ignored. The Laravel
+integration supplies device names, or device IDs when no name is available.
+Each incoming message shows `From: <label>` using its own sender key, including
+conversations containing several devices. An unlabelled key shows a shortened
+npub, and the full npub remains available in the tooltip.
+
+CustomApp **1.0.10 or newer** updates the displayed labels from the same sidebar
+response. Its existing cache TTL applies, so a rename appears on the next
+uncached callback. No additional Laravel requests or polling are needed.
+
 ## Data
 
 | Table                 | Purpose                                                                 |
@@ -137,6 +150,8 @@ migrations automatically. Only when you replace the files by hand (for example `
 
 - `php Tests/crypto_tests.php` runs the NIP-19, NIP-44 (official vectors) and gift wrap checks.
 - `php Tests/schnorr_vectors.php` runs the BIP-340 test vectors against the Schnorr implementation.
+- With CustomApp installed, `php Tests/device_label_tests.php` checks label sync,
+  per-message senders, escaping, contact merges and callback caching in SQLite memory.
 - `php Modules/Nostr/Tests/integration_offline.php` (from the FreeScout root) exercises the settings
   pages, incoming messages, customer keys, merge, NIP-05 and the outgoing failure path in a rolled
   back transaction; no network needed.
