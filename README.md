@@ -20,6 +20,11 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
   kind 0 profile when available. A customer can have several public keys (personal client, one per
   app install...); replies go to the key that wrote last.
 - Agent replies are sent as plain text. Attachments are appended as download links.
+  Each reply includes the author's first name in an encrypted `support_agent` tag
+  on the kind-14 rumor, so VPX can show who replied. It uses the thread author,
+  not the conversation assignee or current logged-in user; surnames, email
+  addresses and agent IDs are not included. Automated replies and missing names
+  omit the tag. Existing replies are unchanged, and other clients can ignore it.
 - Optional one-time auto reply for new conversations.
 - Good citizen: publishes the mailbox's kind 0 profile, kind 10050 DM relay list and kind 10002
   relay list, answers NIP-42 AUTH challenges, and supports a NIP-05 address on any domain.
@@ -152,6 +157,8 @@ migrations automatically. Only when you replace the files by hand (for example `
 - `php Tests/schnorr_vectors.php` runs the BIP-340 test vectors against the Schnorr implementation.
 - With CustomApp installed, `php Tests/device_label_tests.php` checks label sync,
   per-message senders, escaping, contact merges and callback caching in SQLite memory.
+- `php Tests/agent_name_tests.php` uses the same isolated bootstrap to check author
+  names, encrypted metadata and automated replies without contacting any relays.
 - `php Modules/Nostr/Tests/integration_offline.php` (from the FreeScout root) exercises the settings
   pages, incoming messages, customer keys, merge, NIP-05 and the outgoing failure path in a rolled
   back transaction; no network needed.

@@ -88,6 +88,7 @@ class OutgoingMessageSender
             'from_pubkey' => $last->mailbox_pubkey ?? null,
             'conversation_id' => $conversation->id,
             'thread_id' => $thread->id,
+            'agent_name' => $thread->created_by_user->first_name ?? null,
         ]);
 
         $thread->headers = $this->headersFor($result, $cfg, $pubkey, $last);
@@ -147,6 +148,10 @@ class OutgoingMessageSender
         }
         if (!empty($options['reply_to'][0])) {
             $tags[] = ['e', $options['reply_to'][0], (string) ($options['reply_to'][1] ?? ''), 'reply'];
+        }
+        $agentName = trim((string) ($options['agent_name'] ?? ''));
+        if ($agentName !== '') {
+            $tags[] = ['support_agent', $agentName];
         }
 
         list($wrap, $rumor) = GiftWrap::wrap([
