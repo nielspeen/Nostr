@@ -134,6 +134,25 @@ CustomApp **1.0.10 or newer** updates the displayed labels from the same sidebar
 response. Its existing cache TTL applies, so a rename appears on the next
 uncached callback. No additional Laravel requests or polling are needed.
 
+### Message sizes
+
+Outgoing messages default to **65,536 bytes**, measured as the full encrypted
+`["EVENT", event]` JSON payload. Cached NIP-11 `max_message_length` and
+`max_content_length` limits reduce that budget to the lowest advertised value
+among the destination relays. Missing or invalid advertisements keep the default;
+larger advertisements alone do not raise it because relays can have separate,
+unadvertised event-size caps. Metadata is cached for six hours; failures retry
+after ten minutes while retaining known limits.
+
+For your own relays with larger event and WebSocket limits, set the FreeScout
+option `nostr.max_message_bytes` to the desired ceiling in bytes, for example
+`Option::set('nostr.max_message_bytes', 1048576)` from the application console.
+Match the VPX subscription's `[support.nostr].max_message_bytes` setting. Lower
+relay advertisements still win. A 4 MiB safety ceiling bounds allocations.
+NIP-44 extended lengths are supported, so messages are no longer restricted by
+the older 65,535-byte encryption limit. The plaintext allowance is smaller than
+the wire budget because encryption, padding and JSON all consume space.
+
 ## Data
 
 | Table                 | Purpose                                                                 |
@@ -154,6 +173,9 @@ migrations automatically. Only when you replace the files by hand (for example `
 ## Development
 
 - `php Tests/crypto_tests.php` runs the NIP-19, NIP-44 (official vectors) and gift wrap checks.
+- `php Tests/extended_payload_tests.php` checks extended NIP-44 lengths and large gift wraps.
+- With CustomApp installed, `php Tests/relay_limits_tests.php` checks cached NIP-11
+  limits and encrypted message budgets without contacting relays.
 - `php Tests/schnorr_vectors.php` runs the BIP-340 test vectors against the Schnorr implementation.
 - With CustomApp installed, `php Tests/device_label_tests.php` checks label sync,
   per-message senders, escaping, contact merges and callback caching in SQLite memory.

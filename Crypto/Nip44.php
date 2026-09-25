@@ -9,7 +9,8 @@ class Nip44
 {
     const VERSION = 2;
     const MIN_PLAINTEXT = 1;
-    const MAX_PLAINTEXT = 65535;
+    // Bound allocations to the listener's existing 4 MiB message budget.
+    const MAX_PLAINTEXT = 4 * 1024 * 1024;
 
     /**
      * 32 byte conversation key shared by both parties.
@@ -42,12 +43,15 @@ class Nip44
         if ($payload === '' || $payload[0] === '#') {
             throw new \RuntimeException('Unsupported encryption version');
         }
+        if (strlen($payload) > 4 * (int) ceil((self::MAX_PLAINTEXT + 71) / 3)) {
+            throw new \RuntimeException('Invalid payload length');
+        }
         $data = base64_decode($payload, true);
         if ($data === false) {
             throw new \RuntimeException('Invalid base64');
         }
         $length = strlen($data);
-        if ($length < 99 || $length > 65603) {
+        if ($length < 99 || $length > self::MAX_PLAINTEXT + 71) {
             throw new \RuntimeException('Invalid payload length');
         }
         if (ord($data[0]) !== self::VERSION) {
@@ -103,7 +107,9 @@ class Nip44
             throw new \InvalidArgumentException('Invalid plaintext length');
         }
 
-        return pack('n', $len).$plaintext.str_repeat("\0", self::calcPaddedLen($len) - $len);
+        $prefix = $len < 65536 ? pack('n', $len) : pack('nN', 0, $len);
+
+        return $prefix.$plaintext.str_repeat("\0", self::calcPaddedLen($len) - $len);
     }
 
     protected static function unpad($padded)
@@ -112,10 +118,21 @@ class Nip44
             throw new \RuntimeException('Invalid padding');
         }
         $len = unpack('n', substr($padded, 0, 2))[1];
-        if ($len < self::MIN_PLAINTEXT || $len > self::MAX_PLAINTEXT || strlen($padded) !== 2 + self::calcPaddedLen($len)) {
+        $prefix = 2;
+        if ($len === 0) {
+            if (strlen($padded) < 6) {
+                throw new \RuntimeException('Invalid padding');
+            }
+            $len = unpack('N', substr($padded, 2, 4))[1];
+            $prefix = 6;
+            if ($len < 65536) {
+                throw new \RuntimeException('Invalid extended length');
+            }
+        }
+        if ($len < self::MIN_PLAINTEXT || $len > self::MAX_PLAINTEXT || strlen($padded) !== $prefix + self::calcPaddedLen($len)) {
             throw new \RuntimeException('Invalid padding');
         }
 
-        return substr($padded, 2, $len);
+        return substr($padded, $prefix, $len);
     }
 }
