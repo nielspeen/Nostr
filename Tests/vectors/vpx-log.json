@@ -1,0 +1,36 @@
+{
+  "recipient_private_test_key": "0000000000000000000000000000000000000000000000000000000000000001",
+  "rumor": {
+    "content": "Shared diagnostic logs: vpx-logs-20260926-123456.txt (2 entries; 0 omitted).",
+    "created_at": 1790390380,
+    "id": "a7ea26a53c8962a4cc149f5c40304716a5ab579594c41ac89f02d1e95831dfa3",
+    "kind": 14,
+    "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+    "tags": [
+      [
+        "p",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      ],
+      [
+        "vpx_log",
+        "1",
+        "vpx-logs-20260926-123456.txt",
+        "Daemon: test\nPlatform: linux/x86_64\nIncluded: 2 of 2 retained entries; 0 omitted for size.\n\n2026/09/26 12:34:56.000000 [vpxd] DNS timeout — 東京\n2026/09/26 12:35:00.000000 [vpxd] Reconnected\n"
+      ]
+    ]
+  },
+  "wrap": {
+    "content": "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",
+    "created_at": 1790385014,
+    "id": "ac883275052491bd10e90550d1dad8b37f6df1192222092bc2c643c4818b44a6",
+    "kind": 1059,
+    "pubkey": "a2581e73c13d83eaa96b56ceaafa955324efcaff4ad137897faad6ad05ac9632",
+    "sig": "2c5f2a7de2a6169d0e6a9d5b782f66d4682fd2062f461c89c05072f0c047831ca2c3770f791e6b642f211ad8e61988ce084f8930197556ed939293ac2064f45e",
+    "tags": [
+      [
+        "p",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      ]
+    ]
+  }
+}

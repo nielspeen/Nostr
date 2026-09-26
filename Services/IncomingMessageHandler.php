@@ -102,6 +102,12 @@ class IncomingMessageHandler
             $text = $this->fileMessageText($rumor, $attachments);
         } else {
             $text = trim($rumor['content']);
+            try {
+                $attachments = LogAttachment::extract($rumor, (int) config('nostr.max_attachment_size', LogAttachment::MAX_BYTES));
+            } catch (\InvalidArgumentException $e) {
+                $text = __('Sent diagnostic logs that could not be attached.');
+                $this->log($e->getMessage());
+            }
         }
         $body = $this->textToHtml($text);
         if ($body === '') {
@@ -167,7 +173,7 @@ class IncomingMessageHandler
                 'Nostr-Wrap-Created' => Carbon::createFromTimestamp((int) ($wrap['created_at'] ?? 0))->toIso8601String().' (randomized by the sender)',
                 'Nostr-Subject-Tag' => EventBuilder::firstTag($rumor, 'subject'),
                 'Nostr-Parent-Id' => EventBuilder::firstTag($rumor, 'e'),
-                'Nostr-Tags' => json_encode($rumor['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'Nostr-Tags' => json_encode(LogAttachment::headerTags($rumor), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             ]);
             $thread->save();
         } catch (\Throwable $e) {

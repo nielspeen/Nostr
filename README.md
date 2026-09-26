@@ -172,8 +172,26 @@ migrations automatically. Only when you replace the files by hand (for example `
 
 ## Development
 
+### Logs sent by VPX
+
+Nostr 0.5.9 accepts VPX's **Send logs** action as a short chat message with a
+normal downloadable `.txt` attachment. The file travels inside the encrypted
+kind-14 rumor, with no file host or download request:
+`["vpx_log", "1", "vpx-logs-YYYYMMDD-HHMMSS.txt", "UTF-8 log text"]`.
+The module validates the version, filename, encoding and size (at most 4 MiB,
+or the configured attachment limit if smaller). It passes the contents to
+FreeScout's standard attachment storage and keeps them out of the message
+body and displayed headers. Existing wrap/rumor deduplication also covers
+these messages. Install this module version before enabling Send logs in VPX.
+
+### Checks
+
 - `php Tests/crypto_tests.php` runs the NIP-19, NIP-44 (official vectors) and gift wrap checks.
 - `php Tests/extended_payload_tests.php` checks extended NIP-44 lengths and large gift wraps.
+- `php Tests/log_attachment_tests.php` decrypts a VPX-generated log fixture and
+  checks attachment contents, short body, safe headers and malformed payloads.
+- With CustomApp installed, `php Tests/log_storage_tests.php` checks FreeScout's
+  attachment storage using SQLite memory and a temporary private storage directory.
 - With CustomApp installed, `php Tests/relay_limits_tests.php` checks cached NIP-11
   limits and encrypted message budgets without contacting relays.
 - `php Tests/schnorr_vectors.php` runs the BIP-340 test vectors against the Schnorr implementation.
