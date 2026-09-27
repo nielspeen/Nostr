@@ -34,9 +34,9 @@ $failures = 0;
 runCase('default measures encrypted JSON and a provider override permits larger messages', function () {
     \Option::$cache = [];
     $limits = new RelayLimits();
-    $event = ['id' => 'test', 'content' => str_repeat('x', 70000)];
-    check(strpos($limits->error($event, []), '65536') !== false, 'default ceiling missing');
-    \Option::set('nostr.max_message_bytes', 1048576);
+    $event = ['id' => 'test', 'content' => str_repeat('x', 1100000)];
+    check(strpos($limits->error($event, []), '1048576') !== false, 'default ceiling missing');
+    \Option::set('nostr.max_message_bytes', 2097152);
     \Option::$cache = [];
     check($limits->error($event, []) === null, 'provider override ignored');
     $size = strlen(GiftWrap::encode(['EVENT', $event]));
@@ -86,7 +86,7 @@ runCase('content limits count characters and invalid limits preserve the default
     check($limits->error(['content' => str_repeat('é', 10)], ['wss://content.example']) === null, 'counted bytes as characters');
     check($limits->error(['content' => str_repeat('é', 11)], ['wss://content.example']) !== null, 'content cap ignored');
     check($limits->error(['content' => str_repeat('x', 1000)], ['wss://invalid.example']) === null, 'invalid limits applied');
-    check($limits->error(['content' => str_repeat('x', 70000)], ['wss://invalid.example']) !== null, 'default removed');
+    check($limits->error(['content' => str_repeat('x', 1100000)], ['wss://invalid.example']) !== null, 'default removed');
 });
 
 exit($failures ? 1 : 0);

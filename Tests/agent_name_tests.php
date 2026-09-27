@@ -56,6 +56,7 @@ runCase('replies carry only their author first name inside the encrypted message
     $thread->id = 123;
     $thread->body = 'Your reply is here';
     $thread->setRelation('attachments', collect());
+    $thread->setRelation('all_attachments', collect());
     $thread->setRelation('user', new User(['first_name' => 'Assigned']));
     $sender = new OfflineAgentSender();
 

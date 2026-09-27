@@ -8,7 +8,7 @@ class RelayLimits
 {
     public function error(array $event, array $relays): ?string
     {
-        $maxBytes = min(4 * 1024 * 1024, max(1, (int) \Option::get('nostr.max_message_bytes', 65536)));
+        $maxBytes = min(4 * 1024 * 1024, max(1, (int) \Option::get('nostr.max_message_bytes', 1048576)));
         $maxContent = null;
         foreach (array_unique($relays) as $url) {
             $limits = $this->advertised($url);

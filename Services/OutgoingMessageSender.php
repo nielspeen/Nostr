@@ -73,14 +73,21 @@ class OutgoingMessageSender
             return false;
         }
 
-        $text = $this->threadToText($thread);
-        if ($text === '') {
+        try {
+            $attachments = InlineAttachments::forThread($thread);
+            $text = $this->threadToText($thread);
+        } catch (\Throwable $error) {
+            $this->fail($thread, $error->getMessage());
+
+            return false;
+        }
+        if ($text === '' && !$attachments) {
             $this->fail($thread, __('Empty message'));
 
             return false;
         }
 
-        $result = $this->sendText($cfg, $pubkey, $text, [
+        $options = [
             'subject' => $conversation->subject,
             'reply_to' => ($last && $last->rumor_id) ? [$last->rumor_id, $last->relay] : null,
             'extra_relays' => ($last && $last->relay) ? [$last->relay] : [],
@@ -89,7 +96,15 @@ class OutgoingMessageSender
             'conversation_id' => $conversation->id,
             'thread_id' => $thread->id,
             'agent_name' => $thread->created_by_user->first_name ?? null,
-        ]);
+            'attachments' => $attachments,
+        ];
+        try {
+            $result = $this->sendText($cfg, $pubkey, $text, $options);
+        } catch (\Throwable $error) {
+            $this->fail($thread, $error->getMessage());
+
+            return false;
+        }
 
         $thread->headers = $this->headersFor($result, $cfg, $pubkey, $last);
         if ($result['ok']) {
@@ -122,7 +137,7 @@ class OutgoingMessageSender
             'Nostr-Rumor-Id' => $result['rumor']['id'] ?? '',
             'Nostr-Wrap-Id' => $result['wrap']['id'] ?? '',
             'Nostr-Parent-Id' => $last->rumor_id ?? '',
-            'Nostr-Tags' => isset($result['rumor']['tags']) ? json_encode($result['rumor']['tags'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '',
+            'Nostr-Tags' => isset($result['rumor']['tags']) ? json_encode(InlineAttachments::headerTags($result['rumor']['tags']), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '',
         ]);
     }
 
@@ -153,6 +168,7 @@ class OutgoingMessageSender
         if ($agentName !== '') {
             $tags[] = ['support_agent', $agentName];
         }
+        $tags = array_merge($tags, $options['attachments'] ?? []);
 
         list($wrap, $rumor) = GiftWrap::wrap([
             'kind' => GiftWrap::KIND_DM,
@@ -232,14 +248,15 @@ class OutgoingMessageSender
     }
 
     /**
-     * Agent reply as plain text; attachments become links.
+     * Agent reply as plain text; files are carried separately inside the encrypted rumor.
      */
     public function threadToText(Thread $thread)
     {
         $text = HtmlToText::convert($thread->body);
-
-        foreach ($thread->attachments as $attachment) {
-            $text .= "\n\n".$attachment->file_name.': '.$attachment->url();
+        foreach ($thread->all_attachments as $attachment) {
+            // Linked images and editor-created attachment links must not export storage URLs.
+            $url = $attachment->url();
+            $text = str_replace([' ('.$url.')', $url], '', $text);
         }
 
         return trim($text);

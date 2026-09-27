@@ -19,7 +19,11 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
 - Unknown senders become new customers. Their name and picture are filled in from their
   kind 0 profile when available. A customer can have several public keys (personal client, one per
   app install...); replies go to the key that wrote last.
-- Agent replies are sent as plain text. Attachments are appended as download links.
+- Agent replies are sent as plain text. Attachments travel inline inside the
+  encrypted message. PNG, JPEG, GIF, WebP images and UTF-8 text have previews;
+  other files can be saved locally. Images pasted into the
+  editor must be uploaded locally. Invalid, missing or oversized files reject
+  the entire reply with a send error; files are never replaced by download URLs.
   Replies enter FreeScout's background queue immediately, without its 15-second
   Undo Send delay. Nostr replies cannot be undone once submitted; email and other
   channels keep their existing behavior. Queue load and relay delivery can still
@@ -84,6 +88,14 @@ settings page shows the exact JSON to host. If the domain is this FreeScout inst
 Replies are delivered to the customer's own kind 10050 relays (looked up and cached), plus the relay
 their last message arrived on. If none are known, the mailbox's inbox relays are used.
 
+After a relay requires NIP-42 authentication and accepts it, FreeScout remembers
+that requirement in its shared cache for 24 hours. Later publishes and short
+queries authenticate with a fresh connection challenge before sending the request.
+Successful authentication renews the cache entry. Unknown and public relays are
+contacted immediately; their first auth-required rejection is retried automatically.
+If a remembered relay sends no challenge within one second, the hint is cleared
+and the normal request proceeds, within the request's existing timeout.
+
 ### The listener
 
 `php artisan nostr:listen` keeps a websocket open to every inbox relay of every enabled mailbox and
@@ -140,7 +152,7 @@ uncached callback. No additional Laravel requests or polling are needed.
 
 ### Message sizes
 
-Outgoing messages default to **65,536 bytes**, measured as the full encrypted
+Outgoing messages default to **1,048,576 bytes (1 MiB)**, measured as the full encrypted
 `["EVENT", event]` JSON payload. Cached NIP-11 `max_message_length` and
 `max_content_length` limits reduce that budget to the lowest advertised value
 among the destination relays. Missing or invalid advertisements keep the default;
@@ -151,11 +163,21 @@ after ten minutes while retaining known limits.
 For your own relays with larger event and WebSocket limits, set the FreeScout
 option `nostr.max_message_bytes` to the desired ceiling in bytes, for example
 `Option::set('nostr.max_message_bytes', 1048576)` from the application console.
+An existing explicit option still wins; remove or raise an older 65,536-byte
+override to use the new default. Lower public-relay advertisements still apply,
+so a 1 MiB budget requires all destination relays to permit it.
 Match the VPX subscription's `[support.nostr].max_message_bytes` setting. Lower
 relay advertisements still win. A 4 MiB safety ceiling bounds allocations.
 NIP-44 extended lengths are supported, so messages are no longer restricted by
 the older 65,535-byte encryption limit. The plaintext allowance is smaller than
 the wire budget because encryption, padding and JSON all consume space.
+
+Inline files use `["vpx_attachment", "1", "filename", "mime/type", "base64 bytes"]`
+tags inside the encrypted kind-14 rumor. Their bytes stay out of the chat text
+and Show original headers. The complete encrypted reply is checked before any
+relay publication; no partial file set is sent. Input files are capped at 4 MiB
+combined and images at 16 million pixels. Update VPX clients before sending
+files: older versions show only the reply text and cannot display the attachments.
 
 ## Data
 
@@ -201,6 +223,10 @@ these messages. Install this module version before enabling Send logs in VPX.
   attachment storage using SQLite memory and a temporary private storage directory.
 - With CustomApp installed, `php Tests/relay_limits_tests.php` checks cached NIP-11
   limits and encrypted message budgets without contacting relays.
+- With CustomApp installed, `php Tests/relay_auth_tests.php` checks learned relay
+  authentication, fresh challenges, public relays, stale hints and timeouts offline.
+- With CustomApp installed, `php Tests/inline_attachment_tests.php` checks encrypted
+  images/text, all-or-nothing rejection, attachment-only replies and the 1 MiB budget.
 - `php Tests/schnorr_vectors.php` runs the BIP-340 test vectors against the Schnorr implementation.
 - With CustomApp installed, `php Tests/device_label_tests.php` checks label sync,
   per-message senders, escaping, contact merges and callback caching in SQLite memory.

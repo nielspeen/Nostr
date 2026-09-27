@@ -102,6 +102,7 @@ class RelayClient
 
         try {
             $client = $this->connect($url, $timeout);
+            $authed = $this->authenticateBeforeRequest($client, $url, $deadline);
             $client->send($payload);
 
             while (($remaining = $deadline - microtime(true)) > 0) {
@@ -119,7 +120,7 @@ class RelayClient
                     $ok = (bool) ($data[2] ?? false);
                     $message = (string) ($data[3] ?? '');
                     if (!$ok && !$authed && self::isAuthRequired($message)
-                        && $challenge !== null && $this->sendAuth($client, $url, $challenge)) {
+                        && $challenge !== null && $this->sendAuth($client, $url, $challenge, $deadline)) {
                         $authed = true;
                         $client->send($payload);
                         continue;
@@ -152,6 +153,7 @@ class RelayClient
 
         try {
             $client = $this->connect($url, $timeout);
+            $authed = $this->authenticateBeforeRequest($client, $url, $deadline);
             $client->send($payload);
 
             while (($remaining = $deadline - microtime(true)) > 0) {
@@ -173,7 +175,7 @@ class RelayClient
                 } elseif ($type === 'CLOSED' && ($data[1] ?? '') === $subId) {
                     $message = (string) ($data[2] ?? '');
                     if (!$authed && self::isAuthRequired($message)
-                        && $challenge !== null && $this->sendAuth($client, $url, $challenge)) {
+                        && $challenge !== null && $this->sendAuth($client, $url, $challenge, $deadline)) {
                         $authed = true;
                         $client->send($payload);
                         continue;
@@ -199,23 +201,56 @@ class RelayClient
         return $events;
     }
 
-    protected function sendAuth(Client $client, $url, $challenge)
+    protected function authenticateBeforeRequest(Client $client, $url, $deadline)
+    {
+        $key = 'nostr.relay_auth.'.hash('sha256', $url);
+        if ($this->authSigner && \Cache::get($key)) {
+            // A remembered requirement must not stall a relay that no longer challenges.
+            $until = min($deadline, microtime(true) + 1);
+            while (($remaining = $until - microtime(true)) > 0) {
+                $data = $this->receiveJson($client, $remaining);
+                if (($data[0] ?? '') === 'AUTH') {
+                    if (!$this->sendAuth($client, $url, (string) ($data[1] ?? ''), $deadline)) {
+                        throw new \RuntimeException('relay authentication failed');
+                    }
+
+                    return true;
+                }
+                if (($data[0] ?? '') === 'NOTICE') {
+                    $this->log('notice from '.$url.': '.($data[1] ?? ''));
+                }
+            }
+            \Cache::forget($key);
+        }
+        if (microtime(true) >= $deadline) {
+            throw new \RuntimeException('timeout');
+        }
+
+        return false;
+    }
+
+    protected function sendAuth(Client $client, $url, $challenge, $deadline)
     {
         if (!$this->authSigner) {
             return false;
         }
         try {
             $event = call_user_func($this->authSigner, $url, $challenge);
-            if (!$event) {
+            if (!$event || microtime(true) >= $deadline) {
                 return false;
             }
             $client->send(self::encode(['AUTH', $event]));
             // Wait for the OK of the auth event (or give up quietly).
-            $until = microtime(true) + 5;
+            $until = min($deadline, microtime(true) + 5);
             while (($remaining = $until - microtime(true)) > 0) {
                 $data = $this->receiveJson($client, min(1, $remaining));
                 if ($data && ($data[0] ?? '') === 'OK' && ($data[1] ?? '') === $event['id']) {
-                    return (bool) ($data[2] ?? false);
+                    $ok = (bool) ($data[2] ?? false);
+                    if ($ok) {
+                        \Cache::put('nostr.relay_auth.'.hash('sha256', $url), true, now()->addDay());
+                    }
+
+                    return $ok;
                 }
             }
         } catch (\Throwable $e) {
