@@ -4,6 +4,9 @@ Route::group(['middleware' => ['web', 'auth'], 'prefix' => \Helper::getSubdirect
     Route::get('/mailbox/settings/{id}/nostr', 'NostrController@mailboxSettings')->name('mailboxes.nostr');
     Route::post('/mailbox/settings/{id}/nostr', 'NostrController@mailboxSettingsSave')->name('mailboxes.nostr.save');
 
+    Route::get('/mailbox/settings/{id}/nostr/announcements', 'AnnouncementsController@index')->name('mailboxes.nostr.announcements');
+    Route::post('/mailbox/settings/{id}/nostr/announcements', 'AnnouncementsController@publish')->name('mailboxes.nostr.announcements.publish');
+
     Route::get('/customers/{id}/nostr', 'NostrController@customerKeys')->name('customers.nostr');
     Route::post('/customers/{id}/nostr', 'NostrController@customerKeysSave')->name('customers.nostr.save');
 });

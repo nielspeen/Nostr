@@ -252,3 +252,41 @@ FreeScout modules (several ship their own, mutually incompatible copies of React
 ## License
 
 AGPL-3.0
+
+## Public announcements (0.6.0)
+
+1. Update the module and run its normal module migrations. This creates
+   `nostr_announcements`; it does not change existing conversations.
+2. Open **Mailbox settings → Announcements**. Publishing requires permission
+   to update that mailbox and an enabled Nostr identity.
+3. Enter a title, optional summary and plain-text message. Optionally enable
+   the incident banner or choose an expiry in **UTC**.
+4. Click **Publish announcement**. Check the acknowledgement shown for each
+   configured relay. **Retry delivery** resends the same signed event after
+   a failure or interrupted request.
+
+Use **Edit → Publish update** to correct a notice. Uncheck the incident option
+to resolve an incident while keeping its announcement. Clients treat each
+updated revision as unread and allow dismissing its banner independently.
+These are public messages: do not include account details or private logs.
+No announcement is sent merely by saving mailbox settings.
+
+FreeScout signs kind-30023 (NIP-23) events using the mailbox's existing support
+key and publishes to all configured inbox/announcement relays. It stores the
+signed event before sending; retries preserve its ID, and edits preserve the
+stable `d` identifier and original publication time. Title/summary/body limits
+are 300/1,000/16,384 UTF-8 bytes. VPX clients show the last 100 announcements,
+querying revisions from the past 90 days, in **Support → Announcements**.
+The marker is `t=vpx-announcement`; an active incident uses
+`vpx-incident=true`. Text is displayed without fetching remote content.
+
+There is no Laravel dependency in publishing. For the VPX private relay,
+update its authorization helper to allow support-signed kind-30023 events and
+persist the full membership snapshot; see Laravel's `docs/support-chat.md`.
+Clients still require their cached subscription and a previously registered key.
+
+Offline checks:
+
+```sh
+php Tests/announcement_tests.php
+```
