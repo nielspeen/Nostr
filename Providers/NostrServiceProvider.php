@@ -18,6 +18,7 @@ use Modules\Nostr\Services\Keys;
 use Modules\Nostr\Services\OutgoingMessageSender;
 use Modules\Nostr\Services\RelayClient;
 use Modules\Nostr\Services\RelayDiscovery;
+use Modules\Nostr\Services\ReplyDelivery;
 
 // Register the module's vendored packages *after* the application's autoloader.
 // Composer's own autoload.php would prepend itself and shadow core packages
@@ -81,6 +82,7 @@ class NostrServiceProvider extends ServiceProvider
     {
         $channel = (int) config('nostr.channel');
         (new CustomerLabels())->registerHooks();
+        (new ReplyDelivery())->registerHooks();
 
         // Register the channel with the core.
         \Eventy::addFilter('channels.list', function ($channels) use ($channel) {

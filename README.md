@@ -20,6 +20,10 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
   kind 0 profile when available. A customer can have several public keys (personal client, one per
   app install...); replies go to the key that wrote last.
 - Agent replies are sent as plain text. Attachments are appended as download links.
+  Replies enter FreeScout's background queue immediately, without its 15-second
+  Undo Send delay. Nostr replies cannot be undone once submitted; email and other
+  channels keep their existing behavior. Queue load and relay delivery can still
+  add latency.
   Each reply includes the author's first name in an encrypted `support_agent` tag
   on the kind-14 rumor, so VPX can show who replied. It uses the thread author,
   not the conversation assignee or current logged-in user; surnames, email
@@ -186,6 +190,9 @@ these messages. Install this module version before enabling Send logs in VPX.
 
 ### Checks
 
+- With CustomApp installed, `php Tests/reply_delivery_tests.php` checks immediate
+  reply queueing, notifications without Undo, rejection of stale Undo links, and
+  preservation of email and other channels' delays in the isolated test bootstrap.
 - `php Tests/crypto_tests.php` runs the NIP-19, NIP-44 (official vectors) and gift wrap checks.
 - `php Tests/extended_payload_tests.php` checks extended NIP-44 lengths and large gift wraps.
 - `php Tests/log_attachment_tests.php` decrypts a VPX-generated log fixture and
