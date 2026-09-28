@@ -43,7 +43,10 @@ class CustomerLabels
                     ->keyBy('thread_id');
             }
             if ($sender = $this->senders[$conversation->id]->get($thread->id)) {
-                echo view('nostr::partials.thread_sender', ['sender' => $sender])->render();
+                echo view('nostr::partials.thread_sender', [
+                    'sender' => $sender,
+                    'source' => MessageSource::describe($thread),
+                ])->render();
             }
         }, 20, 4);
 

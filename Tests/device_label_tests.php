@@ -52,6 +52,9 @@ runCase('each incoming message displays its own device with one batched lookup',
         $thread = new Thread();
         $thread->id = $index + 1;
         $thread->type = Thread::TYPE_CUSTOMER;
+        $thread->headers = 'Nostr-Tags: '.json_encode([
+            ['vpx_daemon', '1', 'Linux', '26.9.'.(25 + $index)],
+        ]);
         $threads->push($thread);
         \DB::table('nostr_events')->insert([
             'mailbox_id' => 1, 'conversation_id' => $conversation->id, 'thread_id' => $thread->id,
@@ -75,6 +78,8 @@ runCase('each incoming message displays its own device with one batched lookup',
     check(strpos($first, 'Laptop') !== false && strpos($first, 'Phone') === false, 'first message borrowed the latest sender');
     check(strpos($second, 'Phone &lt;script&gt;') !== false && strpos($second, '<script>') === false, 'label was not escaped');
     check(strpos($unknown, Keys::shortNpub(str_repeat('c', 64))) !== false, 'unknown key did not show an npub');
+    check(strpos($first, 'Linux · 12VPX Neo 26.9.25') !== false
+        && strpos($second, 'Linux · 12VPX Neo 26.9.26') !== false, 'per-message source was lost or borrowed');
     $threads[0]->type = Thread::TYPE_MESSAGE;
     check($render($threads[0]) === '', 'agent reply was attributed to a device');
     $threads[0]->type = Thread::TYPE_CUSTOMER;

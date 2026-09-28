@@ -144,6 +144,17 @@ The callback may also return `customer.nostr_keys`, a list of
 These labels replace the labels of existing keys on the resolved customer;
 unknown keys and keys belonging to another customer are ignored. The Laravel
 integration supplies device names, or device IDs when no name is available.
+VPX messages can also include encrypted `vpx_daemon` and `vpx_client` tags.
+Their formats are `["vpx_daemon","1","platform","version"]` and
+`["vpx_client","1","kind","platform","version"]`, where kind is `desktop`,
+`cli`, or `web`. Platform/version are at most 64 UTF-8 bytes without control
+characters; empty means unknown. FreeScout reads these from each thread's
+saved `Nostr-Tags` header and displays the platform and 12VPX Neo version beside
+the device name. Different client/daemon builds are shown separately; web UI
+messages explicitly label the daemon. An upgrade or device rename never
+rewrites the message's original platform/version. Missing or malformed tags
+are ignored. These self-reported diagnostics do not change sender identity.
+
 Each incoming message shows `From: <label>` using its own sender key, including
 conversations containing several devices. An unlabelled key shows a shortened
 npub, and the full npub remains available in the tooltip.
@@ -238,6 +249,9 @@ these messages. Install this module version before enabling Send logs in VPX.
 - `php Tests/schnorr_vectors.php` runs the BIP-340 test vectors against the Schnorr implementation.
 - With CustomApp installed, `php Tests/device_label_tests.php` checks label sync,
   per-message senders, escaping, contact merges and callback caching in SQLite memory.
+- `php Tests/message_source_tests.php` checks per-message platform/version,
+  remote client/daemon distinction, escaped display, older/malformed metadata,
+  and a Rust-generated encrypted fixture without contacting relays.
 - `php Tests/agent_name_tests.php` uses the same isolated bootstrap to check author
   names, encrypted metadata and automated replies without contacting any relays.
 - `php Modules/Nostr/Tests/integration_offline.php` (from the FreeScout root) exercises the settings
