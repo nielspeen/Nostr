@@ -14,14 +14,14 @@ class MessageSource
         }
         $client = self::tag($tags, 'vpx_client', 5);
         $daemon = self::tag($tags, 'vpx_daemon', 4);
-        $labels = ['desktop' => __('Desktop'), 'cli' => __('CLI'), 'web' => __('Web UI')];
+        $labels = ['desktop' => __('Desktop'), 'mobile' => __('Mobile app'), 'cli' => __('CLI'), 'web' => __('Web UI')];
         if ($client && !isset($labels[$client[2]])) {
             $client = null;
         }
         $source = '';
         if ($client) {
             $source = self::build($client[3], $client[4]);
-            if ($client[2] !== 'desktop' || $source === '') {
+            if (!in_array($client[2], ['desktop', 'mobile'], true) || $source === '') {
                 $source = $labels[$client[2]].($source !== '' ? ' · '.$source : '');
             }
         }

@@ -56,6 +56,13 @@ runCase('missing or malformed metadata leaves the message usable', function () {
     check(MessageSource::describe($thread) === '', 'malformed JSON displayed');
 });
 
+runCase('Android mobile messages display their app version without a daemon', function () {
+    foreach (['26.09.28.123456', '26.09.28.123456-debug'] as $version) {
+        $thread = sourceThread([['vpx_client', '1', 'mobile', 'Android', $version]]);
+        check(MessageSource::describe($thread) === 'Android · 12VPX Neo '.$version, 'mobile source missing or mislabelled');
+    }
+});
+
 runCase('display escapes metadata and keeps it separate from refreshed device labels', function () {
     $sender = (object) ['pubkey' => str_repeat('a', 64), 'label' => 'Laptop'];
     $source = MessageSource::describe(sourceThread([
@@ -79,6 +86,19 @@ runCase('production Rust encrypted log carries its original message source into 
     check(strpos($source, 'Daemon: ') !== false, 'Rust daemon metadata was not displayed');
     check(strpos($rumor['content'], 'Windows') === false && count(LogAttachment::extract($rumor)) === 1,
         'metadata changed the message body or attachment');
+});
+
+runCase('production Android encrypted logs display the same source as text messages', function () {
+    $fixture = json_decode(file_get_contents(__DIR__.'/vectors/android-log.json'), true);
+    $private = $fixture['recipient_private_test_key'];
+    $opened = GiftWrap::unwrap($fixture['wrap'], $private, Keys::pubkeyFromPrivate($private));
+    check($fixture['wrap']['tags'] === [['p', Keys::pubkeyFromPrivate($private)]] && $opened['seal']['tags'] === [],
+        'Android source leaked outside the encrypted rumor');
+    $rumor = $opened['rumor'];
+    check(MessageSource::describe(sourceThread(LogAttachment::headerTags($rumor))) === 'Android · 12VPX Neo 26.09.28.123456-debug',
+        'Android source or installed version changed');
+    check(count(LogAttachment::extract($rumor)) === 1 && strpos($rumor['content'], '26.09.28') === false,
+        'Android source changed the attachment or body');
 });
 
 exit($failures ? 1 : 0);

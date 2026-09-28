@@ -147,13 +147,16 @@ integration supplies device names, or device IDs when no name is available.
 VPX messages can also include encrypted `vpx_daemon` and `vpx_client` tags.
 Their formats are `["vpx_daemon","1","platform","version"]` and
 `["vpx_client","1","kind","platform","version"]`, where kind is `desktop`,
-`cli`, or `web`. Platform/version are at most 64 UTF-8 bytes without control
+`mobile`, `cli`, or `web`. Platform/version are at most 64 UTF-8 bytes without control
 characters; empty means unknown. FreeScout reads these from each thread's
 saved `Nostr-Tags` header and displays the platform and 12VPX Neo version beside
 the device name. Different client/daemon builds are shown separately; web UI
 messages explicitly label the daemon. An upgrade or device rename never
 rewrites the message's original platform/version. Missing or malformed tags
 are ignored. These self-reported diagnostics do not change sender identity.
+Nostr 0.6.3 also displays Android's `mobile` client metadata. Android hosts chat
+in the app, so it sends its own installed version (including a debug suffix)
+without a daemon tag.
 
 Each incoming message shows `From: <label>` using its own sender key, including
 conversations containing several devices. An unlabelled key shows a shortened
