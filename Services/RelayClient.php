@@ -45,8 +45,9 @@ class RelayClient
     {
         $timeout = $timeout ?: config('nostr.publish_timeout', 10);
         $results = [];
-        $error = (new RelayLimits())->error($event, $relays);
+        $limits = new RelayLimits();
         foreach (array_unique($relays) as $url) {
+            $error = $limits->error($event, [$url]);
             $results[$url] = $error === null ? $this->publishToRelay($event, $url, $timeout)
                 : ['ok' => false, 'message' => $error];
             $this->log(sprintf('publish %s to %s: %s', substr($event['id'], 0, 8), $url,

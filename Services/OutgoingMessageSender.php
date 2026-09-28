@@ -307,6 +307,12 @@ class OutgoingMessageSender
         $thread->send_status = SendLog::STATUS_SEND_ERROR;
         $thread->updateSendStatusData(['msg' => $message]);
         $thread->save();
+
+        // The agent may have closed the ticket after this reply was queued.
+        $conversation = $thread->conversation()->first();
+        if ($conversation && !$conversation->isActive()) {
+            $conversation->changeStatus(Conversation::STATUS_ACTIVE);
+        }
     }
 
     protected function log($message)

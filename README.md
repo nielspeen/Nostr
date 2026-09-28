@@ -24,6 +24,8 @@ conversations in FreeScout and your replies are delivered back, end-to-end encry
   other files can be saved locally. Images pasted into the
   editor must be uploaded locally. Invalid, missing or oversized files reject
   the entire reply with a send error; files are never replaced by download URLs.
+  Failed agent replies set the conversation back to Active, preserving its assignee
+  and send error notice, so closing on send cannot hide a delivery failure.
   Replies enter FreeScout's background queue immediately, without its 15-second
   Undo Send delay. Nostr replies cannot be undone once submitted; email and other
   channels keep their existing behavior. Queue load and relay delivery can still
@@ -154,8 +156,10 @@ uncached callback. No additional Laravel requests or polling are needed.
 
 Outgoing messages default to **1,048,576 bytes (1 MiB)**, measured as the full encrypted
 `["EVENT", event]` JSON payload. Cached NIP-11 `max_message_length` and
-`max_content_length` limits reduce that budget to the lowest advertised value
-among the destination relays. Missing or invalid advertisements keep the default;
+`max_content_length` limits reduce that budget separately for each destination
+relay. A relay whose limit is too small is skipped without blocking delivery to
+other relays; the reply succeeds when at least one relay accepts it.
+Missing or invalid advertisements keep the configured ceiling;
 larger advertisements alone do not raise it because relays can have separate,
 unadvertised event-size caps. Metadata is cached for six hours; failures retry
 after ten minutes while retaining known limits.
@@ -164,17 +168,17 @@ For your own relays with larger event and WebSocket limits, set the FreeScout
 option `nostr.max_message_bytes` to the desired ceiling in bytes, for example
 `Option::set('nostr.max_message_bytes', 1048576)` from the application console.
 An existing explicit option still wins; remove or raise an older 65,536-byte
-override to use the new default. Lower public-relay advertisements still apply,
-so a 1 MiB budget requires all destination relays to permit it.
-Match the VPX subscription's `[support.nostr].max_message_bytes` setting. Lower
-relay advertisements still win. A 4 MiB safety ceiling bounds allocations.
+override to use the new default. Lower public-relay advertisements apply only
+to those relays, so a smaller public relay does not cap your private relay.
+Match the VPX subscription's `[support.nostr].max_message_bytes` setting.
+A 4 MiB safety ceiling bounds allocations.
 NIP-44 extended lengths are supported, so messages are no longer restricted by
 the older 65,535-byte encryption limit. The plaintext allowance is smaller than
 the wire budget because encryption, padding and JSON all consume space.
 
 Inline files use `["vpx_attachment", "1", "filename", "mime/type", "base64 bytes"]`
 tags inside the encrypted kind-14 rumor. Their bytes stay out of the chat text
-and Show original headers. The complete encrypted reply is checked before any
+and Show original headers. The complete encrypted reply is checked before each
 relay publication; no partial file set is sent. Input files are capped at 4 MiB
 combined and images at 16 million pixels. Update VPX clients before sending
 files: older versions show only the reply text and cannot display the attachments.
@@ -215,14 +219,18 @@ these messages. Install this module version before enabling Send logs in VPX.
 - With CustomApp installed, `php Tests/reply_delivery_tests.php` checks immediate
   reply queueing, notifications without Undo, rejection of stale Undo links, and
   preservation of email and other channels' delays in the isolated test bootstrap.
+- With CustomApp installed, `php Tests/send_failure_tests.php` checks that attachment
+  and relay failures reopen tickets, refresh folder counters and preserve assignment,
+  while successful replies and already-active tickets keep their status.
 - `php Tests/crypto_tests.php` runs the NIP-19, NIP-44 (official vectors) and gift wrap checks.
 - `php Tests/extended_payload_tests.php` checks extended NIP-44 lengths and large gift wraps.
 - `php Tests/log_attachment_tests.php` decrypts a VPX-generated log fixture and
   checks attachment contents, short body, safe headers and malformed payloads.
 - With CustomApp installed, `php Tests/log_storage_tests.php` checks FreeScout's
   attachment storage using SQLite memory and a temporary private storage directory.
-- With CustomApp installed, `php Tests/relay_limits_tests.php` checks cached NIP-11
-  limits and encrypted message budgets without contacting relays.
+- With CustomApp installed, `php Tests/relay_limits_tests.php` checks per-relay
+  limits, partial delivery, cached NIP-11 limits and encrypted message budgets
+  without contacting relays.
 - With CustomApp installed, `php Tests/relay_auth_tests.php` checks learned relay
   authentication, fresh challenges, public relays, stale hints and timeouts offline.
 - With CustomApp installed, `php Tests/inline_attachment_tests.php` checks encrypted
