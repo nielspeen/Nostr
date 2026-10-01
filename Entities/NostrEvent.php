@@ -19,7 +19,7 @@ class NostrEvent extends Model
 
     protected $table = 'nostr_events';
 
-    protected $dates = ['event_created_at'];
+    protected $casts = ['event_created_at' => 'datetime'];
 
     /**
      * Reserve a wrap id before processing it. The unique index makes this atomic across

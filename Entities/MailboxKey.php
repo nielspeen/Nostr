@@ -13,7 +13,10 @@ class MailboxKey extends Model
 {
     protected $table = 'nostr_mailbox_keys';
 
-    protected $dates = ['key_created_at', 'retired_at'];
+    protected $casts = [
+        'key_created_at' => 'datetime',
+        'retired_at' => 'datetime',
+    ];
 
     public function getPrivateKey()
     {

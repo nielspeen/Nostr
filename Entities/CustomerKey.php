@@ -20,7 +20,11 @@ class CustomerKey extends Model
 
     protected $fillable = ['customer_id', 'pubkey', 'label', 'source'];
 
-    protected $dates = ['dm_relays_fetched_at', 'first_seen_at', 'last_seen_at'];
+    protected $casts = [
+        'dm_relays_fetched_at' => 'datetime',
+        'first_seen_at' => 'datetime',
+        'last_seen_at' => 'datetime',
+    ];
 
     public function customer()
     {

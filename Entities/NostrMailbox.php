@@ -18,7 +18,11 @@ class NostrMailbox extends Model
         'auto_reply_enabled', 'auto_reply_text', 'reopen_days',
     ];
 
-    protected $dates = ['last_announced_at', 'last_event_at', 'key_created_at'];
+    protected $casts = [
+        'last_announced_at' => 'datetime',
+        'last_event_at' => 'datetime',
+        'key_created_at' => 'datetime',
+    ];
 
     public function mailbox()
     {
