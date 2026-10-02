@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Mailbox;
 use Illuminate\Http\Request;
 use Modules\Nostr\Entities\Announcement;
-use Modules\Nostr\Entities\NostrMailbox;
+use App\Nostr\NostrMailbox;
 use Modules\Nostr\Services\AnnouncementPublisher;
 
 class AnnouncementsController extends Controller

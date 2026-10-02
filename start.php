@@ -10,6 +10,6 @@
 |
 */
 
-if (!app()->routesAreCached()) {
+if (!app()->routesAreCached() && class_exists(\App\Nostr\Nostr::class)) {
     require __DIR__.'/Http/routes.php';
 }

@@ -2,6 +2,8 @@
 
 namespace Modules\Nostr\Services;
 
+use App\Nostr\EventBuilder;
+
 /** A text log carried entirely inside an authenticated, encrypted kind-14 rumor. */
 class LogAttachment
 {

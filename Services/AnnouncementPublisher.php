@@ -2,8 +2,10 @@
 
 namespace Modules\Nostr\Services;
 
+use App\Nostr\EventBuilder;
+use App\Nostr\RelayClient;
 use Modules\Nostr\Entities\Announcement;
-use Modules\Nostr\Entities\NostrMailbox;
+use App\Nostr\NostrMailbox;
 
 class AnnouncementPublisher
 {

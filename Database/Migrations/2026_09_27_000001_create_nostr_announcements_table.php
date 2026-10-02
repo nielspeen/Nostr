@@ -8,6 +8,9 @@ class CreateNostrAnnouncementsTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('nostr_announcements')) {
+            return;
+        }
         Schema::create('nostr_announcements', function (Blueprint $table) {
             $table->increments('id');
             $table->unsignedInteger('mailbox_id')->index();

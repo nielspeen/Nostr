@@ -1,2 +1,0 @@
-<li @if (Route::currentRouteName() == 'mailboxes.nostr')class="active"@endif><a href="{{ route('mailboxes.nostr', ['id'=>$mailbox->id]) }}"><i class="glyphicon glyphicon-flash"></i> {{ __('Nostr') }}</a></li>
-<li @if (Route::currentRouteName() == 'mailboxes.nostr.announcements')class="active"@endif><a href="{{ route('mailboxes.nostr.announcements', ['id'=>$mailbox->id]) }}"><i class="glyphicon glyphicon-bullhorn"></i> {{ __('Announcements') }}</a></li>

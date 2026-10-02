@@ -11,7 +11,7 @@
     <p class="text-help">{{ __('Public messages signed with this mailbox’s Nostr key. Do not include customer details. Clients display plain text.') }}</p>
     @php
         $event = $editing ? $editing->event : [];
-        $tag = function ($name) use ($event) { return \Modules\Nostr\Services\EventBuilder::firstTag($event, $name); };
+        $tag = function ($name) use ($event) { return \App\Nostr\EventBuilder::firstTag($event, $name); };
     @endphp
     <form method="POST" action="{{ route('mailboxes.nostr.announcements.publish', ['id' => $mailbox->id]) }}">
         {{ csrf_field() }}
@@ -27,7 +27,7 @@
     <hr>
     @foreach($announcements as $item)
         <div class="panel panel-default"><div class="panel-body">
-            <strong>{{ \Modules\Nostr\Services\EventBuilder::firstTag($item->event, 'title') }}</strong>
+            <strong>{{ \App\Nostr\EventBuilder::firstTag($item->event, 'title') }}</strong>
             <span class="text-muted">{{ $item->updated_at }} UTC</span>
             <a href="{{ route('mailboxes.nostr.announcements', ['id' => $mailbox->id, 'edit' => $item->id]) }}">{{ __('Edit') }}</a>
             @foreach($item->relay_results ?: [] as $relay => $result)
