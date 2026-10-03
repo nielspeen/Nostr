@@ -98,7 +98,7 @@ class NostrServiceProvider extends ServiceProvider
 
         \Eventy::addAction('mailboxes.settings.menu', function ($mailbox) {
             if (auth()->user() && auth()->user()->can('update', $mailbox)) {
-                echo '<li '.(\Route::currentRouteName() == 'mailboxes.nostr.announcements' ? 'class="active"' : '').'><a href="'.route('mailboxes.nostr.announcements', ['id' => $mailbox->id]).'"><i class="glyphicon glyphicon-bullhorn"></i> '.e(__('Announcements')).'</a></li>';
+                echo '<li '.(\Route::currentRouteName() == 'mailboxes.nostr.announcements' ? 'class="active"' : '').'><a href="'.route('mailboxes.nostr.announcements', ['id' => $mailbox->id]).'"><i class="glyphicon glyphicon-bullhorn"></i> 12VPX '.e(__('Announcements')).'</a></li>';
             }
         }, 37);
     }

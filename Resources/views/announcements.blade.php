@@ -1,11 +1,11 @@
 @extends('layouts.app')
-@section('title_full', __('Announcements').' - '.$mailbox->name)
+@section('title_full', '12VPX '.__('Announcements').' - '.$mailbox->name)
 @section('sidebar')
     @include('partials/sidebar_menu_toggle')
     @include('mailboxes/sidebar_menu')
 @endsection
 @section('content')
-<div class="section-heading">{{ __('Announcements') }}</div>
+<div class="section-heading">12VPX {{ __('Announcements') }}</div>
 @include('partials/flash_messages')
 <div class="container-fluid">
     <p class="text-help">{{ __('Public messages signed with this mailbox’s Nostr key. Do not include customer details. Clients display plain text.') }}</p>
