@@ -13,5 +13,6 @@
         });
     }
     document.addEventListener('customapp:loaded', updateLabels);
-    updateLabels();
+    // Each page, also one opened with wire:navigate.
+    document.addEventListener('livewire:navigated', updateLabels);
 })();
