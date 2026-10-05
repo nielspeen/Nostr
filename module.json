@@ -2,7 +2,7 @@
     "name": "12VPX Nostr",
     "alias": "nostr",
     "description": "12VPX app support on Tallport's Nostr channel: files and logs inside messages, device names and versions, agent names on replies, and announcements.",
-    "version": "0.7.2",
+    "version": "0.7.3",
     "requiredAppVersion": "1.8.243",
     "detailsUrl": "https://github.com/nielspeen/Nostr",
     "author": "Niels Peen",
