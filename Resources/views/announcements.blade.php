@@ -69,7 +69,7 @@
                             </div>
                             <form method="POST" action="{{ route('mailboxes.nostr.announcements.publish', ['id' => $mailbox->id]) }}">
                                 {{ csrf_field() }}<input type="hidden" name="announcement_id" value="{{ $item->id }}">
-                                <x-fruit::button type="submit" size="small" name="action" value="retry">{{ __('Retry delivery') }}</x-fruit::button>
+                                <x-fruit::button type="submit" size="small" name="action" value="retry">{{ __('Retry Delivery') }}</x-fruit::button>
                             </form>
                         </div>
                     @endforeach
