@@ -15,4 +15,8 @@
     document.addEventListener('customapp:loaded', updateLabels);
     // Each page, also one opened with wire:navigate.
     document.addEventListener('livewire:navigated', updateLabels);
+    document.addEventListener('tallport:conversation-opened', function () {
+        // After the customer's panel has rendered.
+        setTimeout(updateLabels, 0);
+    });
 })();
