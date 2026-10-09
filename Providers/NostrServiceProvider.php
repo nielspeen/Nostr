@@ -57,6 +57,19 @@ class NostrServiceProvider extends ServiceProvider
             return $message;
         }, 20, 2);
 
+        // Screenshots the app sends: image attachments, kept out of the message.
+        \Eventy::addFilter('nostr.incoming_message', function ($message, $rumor) {
+            try {
+                $images = InlineAttachments::extract($rumor, (int) config('nostr.max_attachment_size', InlineAttachments::MAX_BYTES));
+                $message['attachments'] = array_merge($message['attachments'], $images);
+            } catch (\InvalidArgumentException $e) {
+                $message['text'] = __('Sent a screenshot that could not be attached.');
+                \Log::info('[Nostr] '.$e->getMessage());
+            }
+
+            return $message;
+        }, 20, 2);
+
         // Files in replies travel inside the encrypted message.
         \Eventy::addFilter('nostr.reply_attachment_tags', function ($tags, $thread) {
             return InlineAttachments::forThread($thread);

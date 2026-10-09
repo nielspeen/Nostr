@@ -67,6 +67,17 @@ try {
     $bad = $receive('Bad logs', [['vpx_log', '2', 'x.txt', 'x']]);
     check('invalid log noted', $bad && strpos($bad->body, 'could not be attached') !== false, $bad->body ?? '');
 
+    // Screenshots from the app; customers may only send images.
+    $png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    $shot = $receive('Shared screenshot: vpx-screenshot-20261009-120000.png (1×1).', [['vpx_attachment', '1', 'vpx-screenshot-20261009-120000.png', 'image/png', $png]]);
+    $image = $shot ? $shot->attachments()->first() : null;
+    check('screenshot attached', $image && $image->file_name === 'vpx-screenshot-20261009-120000.png' && $image->getFileContents() === base64_decode($png));
+    check('screenshot kept out of Show original', strpos((string) $shot->fresh()->headers, $png) === false);
+    $fake = $receive('Shared screenshot', [['vpx_attachment', '1', 'shot.png', 'image/png', base64_encode('not a png')]]);
+    check('invalid screenshot noted', $fake && strpos($fake->body, 'could not be attached') !== false && !$fake->attachments()->count(), $fake->body ?? '');
+    $exe = $receive('A file', [['vpx_attachment', '1', 'setup.exe', 'application/octet-stream', base64_encode('MZ')]]);
+    check('only images accepted from customers', $exe && !$exe->attachments()->count());
+
     // Replies: files inside the message and the agent's name.
     $conversation = $thread->conversation;
     $reply = Thread::createExtended(['type' => Thread::TYPE_MESSAGE, 'body' => '<p>See the file</p>', 'created_by_user_id' => $admin->id], $conversation, $conversation->customer);

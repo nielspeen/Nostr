@@ -3,6 +3,7 @@
 namespace Modules\Nostr\Services;
 
 use App\Attachment;
+use App\Nostr\EventBuilder;
 use App\Thread;
 
 /** Files travel in encrypted rumor tags, never as externally hosted URLs. */
@@ -57,6 +58,29 @@ class InlineAttachments
         }
 
         return $tags;
+    }
+
+    /**
+     * Screenshots from the app. Customers' devices may only send images; any
+     * invalid tag rejects them all rather than attaching part of a message.
+     */
+    public static function extract(array $rumor, $maxBytes = self::MAX_BYTES): array
+    {
+        $attachments = [];
+        $remaining = min(self::MAX_BYTES, $maxBytes);
+        foreach (EventBuilder::tags($rumor, self::TAG) as $tag) {
+            $data = count($tag) === 5 && $tag[1] === '1' && is_string($tag[4])
+                && strlen($tag[4]) <= intdiv($remaining + 2, 3) * 4 ? base64_decode($tag[4], true) : false;
+            if ($data === false || strlen($data) > $remaining || !is_string($tag[2]) || !self::validName($tag[2])
+                || !in_array($tag[3], ['image/png', 'image/jpeg', 'image/gif', 'image/webp'], true)
+                || !self::validContent($data, $tag[3])) {
+                throw new \InvalidArgumentException('Invalid or oversized encrypted image attachment');
+            }
+            $remaining -= strlen($data);
+            $attachments[] = ['file_name' => $tag[2], 'mime_type' => $tag[3], 'data' => $tag[4]];
+        }
+
+        return $attachments;
     }
 
     public static function validName(string $name): bool

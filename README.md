@@ -6,6 +6,10 @@ generic channel that is part of Tallport:
 - **Logs**: the app's "Send logs" arrives as a `.txt` attachment
   (`["vpx_log", "1", "vpx-logs-YYYYMMDD-HHMMSS.txt", "UTF-8 text"]` inside the
   encrypted message), kept out of the message text and Show original.
+- **Screenshots** from the app arrive as image attachments, one per message,
+  in the same `vpx_attachment` tag as replies use. Customers can only send
+  PNG, JPEG, GIF or WebP; anything else is not attached and the message says
+  so.
 - **Files in replies**: attachments travel inside the encrypted reply as
   `["vpx_attachment", "1", "filename", "mime/type", "base64"]` tags (4 MiB in
   total, images up to 16 million pixels). Without this module Tallport refuses
