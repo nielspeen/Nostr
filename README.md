@@ -26,6 +26,15 @@ generic channel that is part of Tallport:
   notices (`t=vpx-announcement`, `vpx-incident=true` for incidents) to the
   mailbox's relays. Kept in `nostr_announcements`.
 
+**Compatibility.** Besides the 12VPX apps, FloxCore, an app we don't build or
+release, uses this channel: it sends and receives the same encrypted messages
+and tags (`vpx_attachment`, `vpx_log`, `vpx_client`, `vpx_daemon`,
+`support_agent`) and reads the same announcements. It can't be updated together
+with this module, so keep these formats backward compatible: add optional tags
+or fields rather than renaming, removing or changing existing ones, and version
+anything that can't stay compatible. See the Laravel repo's
+`docs/support-chat.md`.
+
 Requires Tallport 1.25.0 or newer (the Nostr channel). Install in `Modules/Nostr`
 and activate it under Manage » Modules; it can be installed before updating
 Tallport: it waits until Tallport has the Nostr channel.
