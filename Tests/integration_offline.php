@@ -64,6 +64,11 @@ try {
     check('log attached', $attachment && $attachment->file_name === 'vpx-logs-20261007-120000.txt' && $attachment->getFileContents() === "line 1\nline 2");
     check('log kept out of Show original', strpos((string) $thread->fresh()->headers, 'line 1') === false && strpos((string) $thread->fresh()->headers, 'vpx_client') !== false);
     check('app and version shown', \Eventy::filter('nostr.message_source', '', $thread->fresh()) === 'Windows 11 · 12VPX Neo 2.3.0', \Eventy::filter('nostr.message_source', '', $thread->fresh()));
+    // Any app's log, by any name (iOS names its logs by Unix time).
+    $ios = $receive('Here are my logs', [['vpx_log', '1', 'vpx-logs-1761057000.txt', "line 1"]]);
+    check('iOS log attached', $ios && optional($ios->attachments()->first())->file_name === 'vpx-logs-1761057000.txt');
+    $other = $receive('Here are my logs', [['vpx_log', '1', '../other app.log', "line 1"]]);
+    check('another app\'s log attached, by its own name', $other && optional($other->attachments()->first())->file_name === 'other app.log', optional($other->attachments()->first())->file_name);
     $bad = $receive('Bad logs', [['vpx_log', '2', 'x.txt', 'x']]);
     check('invalid log noted', $bad && strpos($bad->body, 'could not be attached') !== false, $bad->body ?? '');
 
