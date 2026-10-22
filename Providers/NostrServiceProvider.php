@@ -46,6 +46,10 @@ class NostrServiceProvider extends ServiceProvider
 
         // Logs the app sends: a .txt attachment, kept out of the message.
         \Eventy::addFilter('nostr.incoming_message', function ($message, $rumor) {
+            // The app's text with its logs: not the customer's language (Tallport's app_text).
+            if (\App\Nostr\EventBuilder::tags($rumor, LogAttachment::TAG)) {
+                $message['app_text'] = true;
+            }
             try {
                 $logs = LogAttachment::extract($rumor, (int) config('nostr.max_attachment_size', LogAttachment::MAX_BYTES));
                 $message['attachments'] = array_merge($message['attachments'], $logs);
